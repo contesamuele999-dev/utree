@@ -610,15 +610,6 @@ a { color: var(--accent); text-decoration: none; }
 .swipe-hint.left.ready .swipe-hint-arrow { animation: swipeNudgeL .5s ease-in-out infinite; }
 @keyframes swipeNudgeL { 0%,100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
 
-/* ---------- Inserimento riga (＋ per riga, anche in mezzo) ---------- */
-.block .row-insert {
-  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; font-size: 16px; line-height: 1;
-  border: 1px dashed var(--green-deep); background: var(--panel); color: var(--green-bright);
-  opacity: .45; transition: opacity .12s, background .12s, border-color .12s; cursor: pointer;
-}
-.block:hover .row-insert { opacity: 1; }
-.block .row-insert:hover { background: var(--panel-2); border-color: var(--green-bright); }
-
 /* ---------- ＋ per inserire una riga TRA due righe ---------- */
 .block-wrap { position: relative; }
 /* pulsante a tutta larghezza nello spazio tra una riga e la successiva:
@@ -781,17 +772,24 @@ a { color: var(--accent); text-decoration: none; }
     padding: 7px; box-shadow: 0 8px 22px rgba(0,0,0,.45);
   }
   .row-menu-scrim { display: block; position: fixed; inset: 0; z-index: 44; }
-  .block .row-due, .block .row-img, .block .row-del, .block .row-insert {
+  .block .row-due, .block .row-img, .block .row-del {
     width: 34px; height: 34px; font-size: 15px; opacity: 1;
   }
 
   /* mentre si modifica una riga, il menu ⋮ scompare: la textarea prende tutta la larghezza */
   .block.editing .row-more, .block.editing .row-actions { display: none; }
 
-  /* Su telefono il ＋ tra le righe è SEMPRE visibile (niente hover) e con
-     un'area di tocco più comoda. */
-  .row-add-between { opacity: .55; height: 22px; }
-  .row-add-between-ico { width: 24px; height: 24px; font-size: 16px; }
+  /* Su telefono il ＋ tra le righe è SEMPRE visibile (niente hover), ma discreto:
+     linea e icona smorzate, si accende solo quando lo si tocca. */
+  .row-add-between { opacity: 1; height: 22px; }
+  .row-add-between-line { opacity: .18; }
+  .row-add-between-ico {
+    width: 24px; height: 24px; font-size: 16px;
+    color: var(--text-dim); background: transparent; border-color: color-mix(in srgb, var(--green-deep) 45%, transparent);
+  }
+  .row-add-between:active .row-add-between-ico {
+    color: var(--green-bright); background: var(--panel-2); border-color: var(--green-bright);
+  }
 }
 
 @media (max-width: 380px) {

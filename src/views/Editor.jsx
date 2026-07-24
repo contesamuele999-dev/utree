@@ -1700,8 +1700,6 @@ ${rowsHtml}
                 )}
                 <button className="iconbtn row-del" title="Elimina riga (recuperabile 7 giorni)"
                   onClick={() => { deleteBlock(b.id); setMenuId(null) }}>🗑</button>
-                <button className="row-insert" title="Inserisci una riga qui sotto"
-                  onClick={() => { addBlock(b.id); setMenuId(null) }}>＋</button>
               </div>
             </>
           )}
