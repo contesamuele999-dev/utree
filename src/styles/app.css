@@ -631,6 +631,19 @@ a { color: var(--accent); text-decoration: none; }
 }
 .row-add-between:hover .row-add-between-ico { background: var(--panel-2); border-color: var(--green-bright); }
 
+/* Su QUALSIASI dispositivo touch (telefono E tablet, a ogni larghezza) il ＋ tra
+   le righe è SEMPRE visibile — l'hover non esiste sul touch, quindi non basta.
+   Lo teniamo molto leggero: appena percettibile, si accende solo quando lo si tocca. */
+@media (hover: none) {
+  .row-add-between { opacity: 1; height: 22px; justify-content: center; }
+  .row-add-between-line { display: none; }   /* niente linea: solo il ＋ leggerissimo */
+  .row-add-between-ico {
+    width: 22px; height: 22px; font-size: 15px;
+    color: var(--text-dim); background: transparent; border: none; opacity: .28;
+  }
+  .row-add-between:active .row-add-between-ico { color: var(--green-bright); opacity: 1; }
+}
+
 /* ---------- Suggerimento collegamenti ---------- */
 .link-suggest {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -779,19 +792,8 @@ a { color: var(--accent); text-decoration: none; }
   /* mentre si modifica una riga, il menu ⋮ scompare: la textarea prende tutta la larghezza */
   .block.editing .row-more, .block.editing .row-actions { display: none; }
 
-  /* Su telefono il ＋ tra le righe è SEMPRE visibile (niente hover), ma molto
-     leggero: appena percettibile in sovrimpressione, così non disturba la lettura.
-     Si accende solo quando lo si tocca. */
-  .row-add-between { opacity: 1; height: 22px; }
-  .row-add-between-line { display: none; }   /* niente linea su mobile: solo il ＋ leggerissimo */
-  .row-add-between { justify-content: center; }
-  .row-add-between-ico {
-    width: 22px; height: 22px; font-size: 15px;
-    color: var(--text-dim); background: transparent; border: none; opacity: .28;
-  }
-  .row-add-between:active .row-add-between-ico {
-    color: var(--green-bright); opacity: 1;
-  }
+  /* il ＋ tra le righe su touch è gestito da @media (hover: none) — vale per
+     telefono e tablet a ogni larghezza, quindi qui non serve ripeterlo */
 }
 
 @media (max-width: 380px) {
