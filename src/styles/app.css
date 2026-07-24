@@ -612,18 +612,20 @@ a { color: var(--accent); text-decoration: none; }
 
 /* ---------- ＋ per inserire una riga TRA due righe ---------- */
 .block-wrap { position: relative; }
-/* pulsante a tutta larghezza nello spazio tra una riga e la successiva:
-   invisibile a riposo su desktop, si rivela al passaggio del mouse; su mobile
-   è sempre visibile (vedi media query) con un'area di tocco più comoda. */
+/* Il ＋ NON occupa spazio nel flusso: è sovrapposto in assoluto sul bordo tra una
+   riga e la successiva, così le righe restano attaccate e i rami non si spezzano.
+   Invisibile a riposo su desktop, si rivela al passaggio del mouse. */
 .row-add-between {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 0; margin: 0; border: none; background: none; cursor: pointer;
-  height: 10px; opacity: 0; transition: opacity .12s;
+  position: absolute; left: 0; right: 0; bottom: -11px; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  height: 22px; padding: 0; margin: 0; border: none; background: none; cursor: pointer;
+  opacity: 0; transition: opacity .12s; pointer-events: none;
 }
+.row-add-between-ico { pointer-events: auto; }
 .block-wrap:hover > .row-add-between,
 .row-add-between:hover,
 .row-add-between:focus-visible { opacity: 1; }
-.row-add-between-line { flex: 1; height: 1px; background: var(--green-deep); opacity: .5; }
+.row-add-between-line { display: none; }   /* nessuna linea: solo il ＋, per non "tagliare" i rami */
 .row-add-between-ico {
   flex: 0 0 auto; display: grid; place-items: center;
   width: 20px; height: 20px; border-radius: 50%; font-size: 14px; line-height: 1;
@@ -631,12 +633,11 @@ a { color: var(--accent); text-decoration: none; }
 }
 .row-add-between:hover .row-add-between-ico { background: var(--panel-2); border-color: var(--green-bright); }
 
-/* Su QUALSIASI dispositivo touch (telefono E tablet, a ogni larghezza) il ＋ tra
-   le righe è SEMPRE visibile — l'hover non esiste sul touch, quindi non basta.
-   Lo teniamo molto leggero: appena percettibile, si accende solo quando lo si tocca. */
+/* Su QUALSIASI dispositivo touch (telefono E tablet, a ogni larghezza) il ＋ è
+   SEMPRE visibile — l'hover non esiste sul touch. Molto leggero e in sovrimpressione,
+   senza sfondo, così non occupa spazio né spezza i rami; si accende quando lo si tocca. */
 @media (hover: none) {
-  .row-add-between { opacity: 1; height: 22px; justify-content: center; }
-  .row-add-between-line { display: none; }   /* niente linea: solo il ＋ leggerissimo */
+  .row-add-between { opacity: 1; }
   .row-add-between-ico {
     width: 22px; height: 22px; font-size: 15px;
     color: var(--text-dim); background: transparent; border: none; opacity: .28;

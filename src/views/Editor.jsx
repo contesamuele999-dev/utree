@@ -1708,9 +1708,7 @@ ${rowsHtml}
           <button className="row-add-between" data-noswipe="" tabIndex={-1}
             title="Inserisci una riga qui" aria-label="Inserisci una riga qui"
             onClick={() => addBlock(b.id)}>
-            <span className="row-add-between-line" />
             <span className="row-add-between-ico">＋</span>
-            <span className="row-add-between-line" />
           </button>
         )}
         </div>
