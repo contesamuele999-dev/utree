@@ -1177,6 +1177,30 @@ ${rowsHtml}
     if (d.active) { setDragId(null); setDropId(null); setGhost(null) }
   }
 
+  // ---- SWIPE orizzontale mentre si MODIFICA una riga: nidifica / riduce ----
+  // Uno swipe ampio (≥ SWIPE_MIN) e nettamente orizzontale cambia il livello di
+  // nidificazione della riga in modifica, senza rubare il normale posizionamento
+  // del cursore nel testo (che avviene coi gesti piccoli / verticali).
+  const editSwipe = useRef(null)
+  const onEditSwipeDown = (e, b) => {
+    // ignoriamo il mouse: lì ci sono i pulsanti ⇥/⇤ della toolbar
+    if (e.pointerType === 'mouse') { editSwipe.current = null; return }
+    editSwipe.current = { id: b.id, sx: e.clientX, sy: e.clientY, done: false }
+  }
+  const onEditSwipeMove = (e) => {
+    const d = editSwipe.current
+    if (!d || d.done) return
+    const dx = e.clientX - d.sx, dy = e.clientY - d.sy
+    if (Math.abs(dx) >= SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 1.6) {
+      d.done = true
+      const i = blocks.findIndex(x => x.id === d.id)
+      if (dx > 0) setIndent(d.id, Math.min(maxIndentFor(blocks, i), (blocks[i]?.indent || 0) + 1))
+      else setIndent(d.id, Math.max(0, (blocks[i]?.indent || 0) - 1))
+      try { navigator.vibrate?.(10) } catch { /* ignore */ }
+    }
+  }
+  const onEditSwipeEnd = () => { editSwipe.current = null }
+
   const titleChange = (v) => { setTitle(v); persist(blocks, v, trash) }
 
   // ---- grassetto / corsivo: avvolge la selezione del textarea (Ctrl+B / Ctrl+I) ----
@@ -1533,7 +1557,8 @@ ${rowsHtml}
         const isHit = matchSet ? matchSet.has(b.id) : false
         const di = b.due ? dueInfo(b.due) : null
         return (
-        <div key={b.id} data-block-id={b.id} data-noswipe=""
+        <div key={b.id} className="block-wrap">
+        <div data-block-id={b.id} data-noswipe=""
           className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '')}
           draggable={editing !== b.id && (!selectMode || selected.has(b.id))}
           onDragStart={e => onDragStart(e, b.id)}
@@ -1552,7 +1577,9 @@ ${rowsHtml}
               onPointerEnter={() => { if (selDrag.current) selDragEnter(b.id) }}>{isSel ? '✓' : ''}</span>
           )}
           {editing === b.id ? (
-            <div className="row-edit" data-noswipe="">
+            <div className="row-edit" data-noswipe=""
+              onPointerDown={e => onEditSwipeDown(e, b)} onPointerMove={onEditSwipeMove}
+              onPointerUp={onEditSwipeEnd} onPointerCancel={onEditSwipeEnd}>
             <textarea
               className="row-input"
               ref={el => { editRef.current = el; if (el) { autosize(el); if (document.activeElement !== el) el.focus({ preventScroll: true }); if (pendingCaret.current != null) { const p = Math.min(pendingCaret.current, el.value.length); try { el.selectionStart = el.selectionEnd = p } catch { /* ignore */ } pendingCaret.current = null } } }}
@@ -1678,6 +1705,16 @@ ${rowsHtml}
               </div>
             </>
           )}
+        </div>
+        {!selectMode && !focusMode && (
+          <button className="row-add-between" data-noswipe="" tabIndex={-1}
+            title="Inserisci una riga qui" aria-label="Inserisci una riga qui"
+            onClick={() => addBlock(b.id)}>
+            <span className="row-add-between-line" />
+            <span className="row-add-between-ico">＋</span>
+            <span className="row-add-between-line" />
+          </button>
+        )}
         </div>
         )
       })}
