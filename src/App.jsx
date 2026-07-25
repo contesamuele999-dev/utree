@@ -63,6 +63,10 @@ export default function App() {
   const defaultVita = useRef(null)
   const stageWarned = useRef(false)
   const pinWarned = useRef(false)
+  // NB: tutti gli hook stanno QUI, prima dei return anticipati per `loading` e
+  // `!user`. Dichiararne uno più in basso significa eseguirne un numero diverso
+  // prima e dopo il login: React lo rifiuta (errore #310) e smonta tutto.
+  const archivioWarned = useRef(false)
   const contentRef = useRef(null)       // contenitore scrollabile delle schede (Pipe/Tree/…)
   const pipeScrollRef = useRef(0)       // scroll di Pipe salvato all'apertura di una vista, ripristinato al ritorno
   const baseBlocchi = useRef({})        // { vistaId: blocchi } = ultimo stato cloud noto, per il merge multi-dispositivo
@@ -691,7 +695,6 @@ export default function App() {
   // ---- Archivio visioni: toglie rumore da Pipe e da Today senza cancellare nulla.
   //      Come per fasi e pin: se la colonna `archiviata` non esiste ancora sul cloud,
   //      si ripiega su questo dispositivo con un avviso una tantum. ----
-  const archivioWarned = useRef(false)
   const toggleArchivioVisione = async (vis) => {
     const archiviata = !vis.archiviata
     setVisioni(vs => vs.map(v => v.id === vis.id ? { ...v, archiviata } : v))
