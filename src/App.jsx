@@ -111,14 +111,14 @@ export default function App() {
     if (manutFatta.current === oggi) return
     if (localStorage.getItem(CHIAVE) === oggi) { manutFatta.current = oggi; return }
 
-    const patches = pianificaRollover({ task: tk, oggi })
-    const { daCreare, genUpdates } = pianificaRicorrenti({ regole: rc, task: tk, oggi })
-    if (!patches.length && !daCreare.length && !genUpdates.length) {
-      manutFatta.current = oggi
-      localStorage.setItem(CHIAVE, oggi)
-      return
-    }
     try {
+      const patches = pianificaRollover({ task: tk, oggi })
+      const { daCreare, genUpdates } = pianificaRicorrenti({ regole: rc, task: tk, oggi })
+      if (!patches.length && !daCreare.length && !genUpdates.length) {
+        manutFatta.current = oggi
+        localStorage.setItem(CHIAVE, oggi)
+        return
+      }
       for (const p of patches) await store.update('task', p.id, p.patch)
       const nuove = daCreare.length ? await store.insertMany('task', daCreare) : []
       for (const g of genUpdates) await store.update('ricorrenza', g.id, { ultima_gen: g.ultima_gen })

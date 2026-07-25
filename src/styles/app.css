@@ -1177,6 +1177,23 @@ a { color: var(--accent); text-decoration: none; }
 .today-take:hover { border-color: var(--green-bright); color: var(--green-bright); }
 .today-badge.scaduta { border-color: var(--due-over); color: var(--due-over); }
 
+/* ---- Schermata di errore (ErrorBoundary) ---- */
+.crash { max-width: 720px; margin: 0 auto; padding: 40px 20px; color: var(--text); }
+.crash h1 { font-size: 22px; margin: 0 0 10px; }
+.crash p { color: var(--text-dim); line-height: 1.6; margin: 0 0 16px; }
+.crash-msg {
+  background: var(--panel); border: 1px solid var(--danger); border-radius: 10px;
+  padding: 12px; font-size: 13px; white-space: pre-wrap; word-break: break-word; margin: 0 0 12px;
+}
+.crash details { margin-bottom: 16px; }
+.crash summary { cursor: pointer; color: var(--text-dim); font-size: 13px; }
+.crash-stack {
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow: auto; margin-top: 8px;
+}
+.crash-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
 /* ---- Rito serale ---- */
 .today-sera {
   margin: 18px 12px 0; padding: 16px; border-radius: var(--radius);
