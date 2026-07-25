@@ -171,25 +171,11 @@ export default function App() {
     const done = !t.done
     const patch = { done, done_at: done ? new Date().toISOString() : null }
     setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
-    // bidirezionale: se la task viene da una riga di vista, la riga la segue
-    if (t.vista_id && t.blocco_id) syncRigaDaTask(t, done)
     try { await store.update('task', t.id, patch) }
     catch (e) {
       setTask(ts => ts.map(x => x.id === t.id ? { ...x, done: t.done, done_at: t.done_at } : x))
       avvisaMigrazione(e)
     }
-  }
-
-  // Spuntare in Today marca la riga d'origine come fatta e le toglie la scadenza:
-  // la stessa cosa non deve risultare "da fare" in due posti diversi.
-  const syncRigaDaTask = (t, done) => {
-    const v = viste.find(x => x.id === t.vista_id)
-    if (!v) return
-    if (!(v.blocchi || []).some(b => b.id === t.blocco_id)) return   // riga già eliminata: task orfana
-    const blocchi = v.blocchi.map(b => b.id === t.blocco_id
-      ? { ...b, done, ...(done ? { due: undefined } : {}) }
-      : b)
-    saveVista({ ...v, blocchi })
   }
 
   const editTaskText = async (t, text) => {
@@ -225,35 +211,42 @@ export default function App() {
     if (v) openFromList(v)
   }
 
-  // Teletrasporto: una riga dell'editor diventa una task di oggi. La task
-  // REFERENZIA la riga (vista_id + blocco_id), non la duplica: spuntare da una
-  // parte si riflette dall'altra. Se la riga è già in Today non se ne creano due.
-  const sendToToday = async ({ blocco, giorno }, vistaId) => {
+  // Teletrasporto: la riga viene SPOSTATA dall'editor a Today (l'editor l'ha già
+  // tolta dai blocchi e messa nel suo cestino). Qui nasce solo la task.
+  // Teniamo `vista_id` come provenienza — serve al chip di origine e alle
+  // statistiche per visione — ma non `blocco_id`: quella riga non esiste più.
+  const sendToToday = async ({ testo, giorno }, vistaId) => {
     const vid = vistaId || vistaAperta?.id
-    if (!vid || !blocco?.id) return
-    if (task.some(t => t.vista_id === vid && t.blocco_id === blocco.id && !t.done)) return
+    const text = (testo || '').trim()
+    if (!text) return
     const ordini = task.filter(t => t.giorno === giorno).map(t => t.ordine || 0)
     await addTask({
-      text: blocco.text || '',
+      text,
       giorno,
       ordine: (ordini.length ? Math.max(...ordini) : 0) + 1,
-      vista_id: vid,
-      blocco_id: blocco.id,
+      vista_id: vid || null,
     })
   }
 
-  // Accetta una proposta: la riga scaduta/di oggi diventa una task e prende il
-  // checkbox nella nota di origine, così le due cose restano la stessa cosa.
+  // Accetta una proposta: come il teletrasporto, la riga SI SPOSTA. Esce dalla
+  // nota (finisce nel suo cestino, recuperabile) e diventa una task di oggi.
   const accettaProposta = async (p) => {
     const oggi = todayKey()
     const ordini = task.filter(t => t.giorno === oggi).map(t => t.ordine || 0)
     await addTask({
       text: p.text, giorno: oggi,
       ordine: (ordini.length ? Math.max(...ordini) : 0) + 1,
-      vista_id: p.vista_id, blocco_id: p.blocco_id,
+      vista_id: p.vista_id,
     })
     const v = viste.find(x => x.id === p.vista_id)
-    if (v) saveVista({ ...v, blocchi: (v.blocchi || []).map(b => b.id === p.blocco_id ? { ...b, check: true } : b) })
+    if (!v) return
+    const riga = (v.blocchi || []).find(b => b.id === p.blocco_id)
+    let blocchi = (v.blocchi || []).filter(b => b.id !== p.blocco_id)
+    if (!blocchi.length) blocchi = [{ id: 'b-' + Math.random().toString(36).slice(2, 9), text: '' }]
+    const cestino = riga
+      ? [{ ...riga, deletedAt: Date.now(), inToday: true }, ...(v.cestino || [])].slice(0, 200)
+      : (v.cestino || [])
+    saveVista({ ...v, blocchi, cestino })
   }
 
   // ---- TODAY: regole ricorrenti ----------------------------------------------
@@ -306,22 +299,6 @@ export default function App() {
       const saved = await store.upsertGiorno(oggi, patch)
       setGiorni(gs => gs.map(g => g.giorno === oggi ? saved : g))
     } catch (e) { avvisaMigrazione(e) }
-  }
-
-  // Verso opposto: spuntare la riga nell'editor spunta la task in Today.
-  // Chiamata dal salvataggio della vista, confrontando i blocchi con le task.
-  const syncTaskDaRighe = (vistaId, blocchi) => {
-    const mie = task.filter(t => t.vista_id === vistaId && t.blocco_id)
-    if (!mie.length) return
-    for (const t of mie) {
-      const b = (blocchi || []).find(x => x.id === t.blocco_id)
-      if (!b) continue
-      const done = !!b.done
-      if (done === !!t.done) continue
-      const patch = { done, done_at: done ? new Date().toISOString() : null }
-      setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
-      store.update('task', t.id, patch).catch(e => console.warn('[today] sync riga→task:', e?.message || e))
-    }
   }
 
   useEffect(() => { setTheme(loadTheme()) }, [])
@@ -634,8 +611,6 @@ export default function App() {
     const nowIso = new Date().toISOString()
     setViste(vs => vs.map(v => v.id === updated.id ? { ...v, ...updated, updated_at: nowIso } : v))
     setVistaAperta(va => (va && va.id === updated.id) ? { ...va, ...updated, updated_at: nowIso } : va)
-    // le righe con checkbox spuntate qui spuntano anche la task corrispondente in Today
-    syncTaskDaRighe(updated.id, updated.blocchi)
     // 3) salvataggio cloud con MERGE per riga: rilegge la versione cloud e fonde i
     //    blocchi per id, così le modifiche fatte in contemporanea su un altro
     //    dispositivo non vengono sovrascritte. (best-effort, fallback se manca `cestino`)

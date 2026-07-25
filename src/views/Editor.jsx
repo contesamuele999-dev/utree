@@ -255,41 +255,50 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   }
 
   // ---- TELETRASPORTO in Today (/oggi) ---------------------------------------
-  // Porta la riga fra le task di oggi. La riga resta dov'è: la task che nasce la
-  // referenzia (vista_id + blocco_id), non la copia. Se non ha una scadenza le
-  // mettiamo oggi, così resta coerente con Pipe e con la sync Calendar.
-  const mandaOggi = (b, testo) => {
-    if (!onSendToToday) return
-    const testoPulito = ((testo !== undefined ? testo : b.text) || '').replace(/[#*`>]/g, '').trim()
-    if (!testoPulito) { setToast('⚠️ Riga vuota: niente da fare oggi'); setTimeout(() => setToast(''), 1600); return }
-    const oggiIso = new Date(); const p = n => String(n).padStart(2, '0')
-    const oggiKey = `${oggiIso.getFullYear()}-${p(oggiIso.getMonth() + 1)}-${p(oggiIso.getDate())}`
-    // il commit locale: testo ripulito dal token + checkbox + scadenza di oggi
-    const next = blocks.map(x => x.id === b.id
-      ? { ...x, ...(testo !== undefined ? { text: testo } : {}), check: true, due: x.due || oggiKey, oggi: true }
-      : x)
-    commit(next)
-    onSendToToday({ blocco: { ...b, text: testoPulito }, giorno: oggiKey })
-    setToast('⚡ Portata in Today')
-    setTimeout(() => setToast(''), 1600)
+  // La riga viene SPOSTATA: esce dalla nota ed entra fra le task di oggi.
+  // Niente doppioni fra la nota e Today — la stessa cosa non deve risultare
+  // "da fare" in due posti. Per non perdere nulla la riga finisce nel CESTINO
+  // della vista (recuperabile 7 giorni) ed è annullabile con Ctrl+Z.
+  const oggiKey = () => {
+    const d = new Date(); const p = n => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
   }
-  // Su più righe: UN SOLO commit. Chiamare mandaOggi in ciclo farebbe partire
-  // ogni commit dallo stesso `blocks` di partenza e vincerebbe solo l'ultimo.
-  const mandaOggiMany = () => {
-    if (!selected.size || !onSendToToday) return
-    const targets = blocks.filter(b => selected.has(b.id) && (b.text || '').trim())
-    if (!targets.length) return
-    const p = n => String(n).padStart(2, '0')
-    const d = new Date()
-    const oggiKey = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-    const ids = new Set(targets.map(b => b.id))
-    commit(blocks.map(b => ids.has(b.id) ? { ...b, check: true, due: b.due || oggiKey, oggi: true } : b))
-    targets.forEach(b => onSendToToday({
-      blocco: { ...b, text: (b.text || '').replace(/[#*`>]/g, '').trim() }, giorno: oggiKey,
-    }))
-    setToast(`⚡ ${targets.length} righe in Today`)
-    setTimeout(() => setToast(''), 1600)
+  const avvisa = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800) }
+
+  // Sposta in Today le righe indicate, con UN SOLO commit (un ciclo di commit
+  // ripartirebbe ogni volta dallo stesso `blocks` e salverebbe solo l'ultimo).
+  // `testiPuliti` (facoltativo) = testo già ripulito per riga, usato da /oggi
+  // che deve anche togliere il token dal testo.
+  const spostaInToday = (targets, testiPuliti = {}) => {
+    if (!onSendToToday || !targets.length) return
+    const giorno = oggiKey()
+    const daPortare = targets
+      .map(b => ({ b, text: (testiPuliti[b.id] ?? b.text ?? '').replace(/[#*`>]/g, '').trim() }))
+      .filter(x => x.text)
+    if (!daPortare.length) { avvisa('⚠️ Riga vuota: niente da portare in Today'); return }
+
+    const ids = new Set(daPortare.map(x => x.b.id))
+    let nextBlocks = blocks.filter(b => !ids.has(b.id))
+    if (!nextBlocks.length) nextBlocks = [{ id: uid(), text: '', indent: 0 }]   // la vista non resta senza righe
+    const nextTrash = [
+      ...daPortare.map(x => ({ ...x.b, deletedAt: Date.now(), inToday: true })),
+      ...trash,
+    ].slice(0, 200)
+
+    pushUndo(blocks)
+    setBlocks(nextBlocks); setTrash(nextTrash)
+    setEditing(e => ids.has(e) ? null : e)
+    setSelected(s => { const n = new Set(s); ids.forEach(i => n.delete(i)); return n })
+    persist(nextBlocks, title, nextTrash)
+
+    daPortare.forEach(x => onSendToToday({ testo: x.text, giorno }))
+    avvisa(daPortare.length === 1
+      ? '⚡ Spostata in Today (Ctrl+Z per annullare)'
+      : `⚡ ${daPortare.length} righe spostate in Today`)
   }
+
+  const mandaOggi = (b, testo) => spostaInToday([b], testo !== undefined ? { [b.id]: testo } : {})
+  const mandaOggiMany = () => spostaInToday(blocks.filter(b => selected.has(b.id)))
 
   // imposta la stessa scadenza su tutte le righe selezionate ('' = rimuovi)
   const setDueMany = (due) => {
@@ -1608,8 +1617,8 @@ ${rowsHtml}
             <li><b className="hint-cat" /> <span>Su mobile: tieni premuto e sposta</span></li>
 
             <li className="grp"><b className="hint-cat">Task</b> <span><code>/check</code> o <code>Ctrl+⇧+K</code> = checkbox sulla riga</span></li>
-            <li><b className="hint-cat" /> <span><code>/oggi</code> o <code>Ctrl+⇧+T</code> = porta la riga in Today</span></li>
-            <li><b className="hint-cat" /> <span>Spuntata qui = spuntata anche in Today, e viceversa</span></li>
+            <li><b className="hint-cat" /> <span><code>/oggi</code> o <code>Ctrl+⇧+T</code> = <b>sposta</b> la riga in Today</span></li>
+            <li><b className="hint-cat" /> <span>La riga esce dalla nota (va nel cestino): <code>Ctrl+Z</code> annulla</span></li>
 
             <li className="grp"><b className="hint-cat">Testo</b> <span><code>Ctrl+B</code> = grassetto · <code>Ctrl+I</code> = corsivo</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+M</code> o <b>AA</b> = MAIUSCOLO</span></li>
@@ -1820,8 +1829,8 @@ ${rowsHtml}
                   title={b.check ? 'Togli il checkbox (/check)' : 'Aggiungi un checkbox alla riga (/check)'}
                   onClick={() => { toggleCheck(b.id); setMenuId(null) }}>☑</button>
                 {onSendToToday && (
-                  <button className={'iconbtn row-oggi' + (b.oggi ? ' on' : '')}
-                    title="Porta questa riga fra le task di oggi (/oggi · Ctrl+Shift+T)"
+                  <button className="iconbtn row-oggi"
+                    title="Sposta questa riga fra le task di oggi (/oggi · Ctrl+Shift+T). Esce dalla nota e finisce nel cestino, recuperabile."
                     onClick={() => { mandaOggi(b); setMenuId(null) }}>⚡</button>
                 )}
                 <button className="iconbtn row-img" title="Allega un'immagine a questa riga"
