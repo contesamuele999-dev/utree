@@ -88,6 +88,10 @@ function seed() {
       { id: uid(), da_vista: v1, a_vista: v2, tipo: 'maggiore' },
       { id: uid(), da_vista: v1, a_vista: v3, tipo: 'maggiore' },
     ],
+    // sezione Today: vuote all'inizio, lo storico nasce con l'uso
+    task: [],
+    ricorrenza: [],
+    giorno: [],
   }
   saveLocal(db)
   return db
@@ -168,6 +172,63 @@ export const store = {
     const db = loadLocal()
     db[table] = (db[table] || []).filter(r => r.id !== id)
     saveLocal(db)
+  },
+
+  // ---------- Today ----------
+  // Inserimento multiplo (istanze delle task ricorrenti generate all'apertura).
+  // Su Supabase c'è l'indice unico (ricorrenza_id, giorno): se un altro
+  // dispositivo ha già generato lo stesso giorno, il duplicato viene IGNORATO
+  // invece di far fallire tutto l'inserimento. In demo l'unicità la garantiamo
+  // qui a mano, perché localStorage non ha vincoli.
+  async insertMany(table, rows) {
+    const list = (rows || []).filter(Boolean)
+    if (!list.length) return []
+    if (hasSupabase) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const payload = list.map(r => ({ ...r, user_id: user.id }))
+      const q = supabase.from(table).insert(payload, { defaultToNull: false })
+      const { data, error } = await q.select()
+      if (error) {
+        // 23505 = violazione di unicità: qualcun altro ha già generato queste
+        // istanze. Non è un errore per noi, l'esito voluto è già in tabella.
+        if (error.code === '23505') return []
+        throw error
+      }
+      return data
+    }
+    const db = loadLocal()
+    const esistenti = new Set(
+      (db[table] || []).filter(r => r.ricorrenza_id).map(r => `${r.ricorrenza_id}|${r.giorno}`)
+    )
+    const nuove = []
+    for (const r of list) {
+      const k = r.ricorrenza_id ? `${r.ricorrenza_id}|${r.giorno}` : null
+      if (k && esistenti.has(k)) continue
+      if (k) esistenti.add(k)
+      nuove.push({ id: uid(), created_at: new Date().toISOString(), ...r })
+    }
+    db[table] = [...(db[table] || []), ...nuove]
+    saveLocal(db)
+    return nuove
+  },
+
+  // Il rito serale: una riga per data (vincolo unique(user_id, giorno)).
+  async upsertGiorno(giornoKey, patch) {
+    if (hasSupabase) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data, error } = await supabase.from('giorno')
+        .upsert({ ...patch, giorno: giornoKey, user_id: user.id }, { onConflict: 'user_id,giorno' })
+        .select().single()
+      if (error) throw error
+      return data
+    }
+    const db = loadLocal()
+    db.giorno = db.giorno || []
+    const i = db.giorno.findIndex(g => g.giorno === giornoKey)
+    if (i >= 0) db.giorno[i] = { ...db.giorno[i], ...patch }
+    else db.giorno.push({ id: uid(), created_at: new Date().toISOString(), giorno: giornoKey, ...patch })
+    saveLocal(db)
+    return db.giorno.find(g => g.giorno === giornoKey)
   },
 
   // ---------- Allegati immagine (Supabase Storage) ----------

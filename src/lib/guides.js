@@ -1,5 +1,26 @@
 // Guida comandi per ogni sezione dell'app.
 export const GUIDES = {
+  today: {
+    titolo: 'Guida · Today',
+    icona: '☀️',
+    righe: [
+      ['A cosa serve', 'Le viste dicono cosa esiste, Progress a che punto è, Today cosa tocca oggi.'],
+      ['Il rito', 'La mattina scegli le task, durante il giorno le spunti, la sera guardi cosa hai fatto.'],
+      ['Aggiungere', 'Scrivi nella riga in fondo e premi Invio: resta il cursore, così ne aggiungi tante di fila.'],
+      ['Modificare', 'Tocca il testo di una task per correggerlo; Esc annulla.'],
+      ['Completare', 'Tocca il quadratino: la riga diventa grigia e barrata. Ritoccalo per annullare.'],
+      ['Riordinare', 'Trascina la maniglia ⠿. Con “fatte in fondo” raggruppi le completate.'],
+      ['Rimandate', 'Le task non completate passano da sole al giorno dopo. Il badge ↻3 segnala quelle rimandate troppe volte.'],
+      ['Ricorrenti', 'Le task ricorrenti (badge ↻) non vengono mai rimandate: se salti un giorno, domani arriva l’istanza nuova.'],
+      ['Origine', 'Il chip ⚡ apre la nota da cui arriva la task. Spuntarla qui segna anche la riga nella nota.'],
+      ['Serie', 'Il contatore 🔥 conta i giorni con almeno una task chiusa. I giorni senza task pianificate non la spezzano, e c’è una giornata di grazia al mese.'],
+      ['Proposte', 'Le righe con scadenza oggi o già scaduta, prese dalle visioni non archiviate. Si aggiungono una alla volta con ＋.'],
+      ['Regole ricorrenti', 'Il pulsante ↻ in alto apre il pannello: ogni giorno, giorni della settimana, giorni del mese o ogni N giorni, con anteprima delle prossime occorrenze.'],
+      ['Sera', 'Dopo le 18 (o appena chiudi qualcosa) compare “Come è andata oggi?”: una vittoria e un umore. Chiudere la giornata la archivia nello storico.'],
+      ['Settimana', 'In fondo, “La tua settimana” raccoglie le task chiuse, il giorno migliore e le vittorie annotate.'],
+      ['Statistiche', 'Nel menu ☰ → Statistiche, scheda Today: serie, ora tipica di chiusura, tenuta delle ricorrenti e un anno di giornate.'],
+    ],
+  },
   pipe: {
     titolo: 'Guida · Pipe',
     icona: '🌱',
@@ -12,6 +33,7 @@ export const GUIDES = {
       ['Ricerca rapida', 'Inizia a digitare (da PC) per riempire la barra di ricerca; premi Invio per aprire la prima vista trovata.'],
       ['Scadenze', 'Le viste con righe scadute o in scadenza a breve si evidenziano con un colore di sfondo sulla card.'],
       ['Anteprima', 'Tocca il pulsante 👁 sulla card per leggere senza aprire.'],
+      ['Archivio', 'Il pulsante 📦 archivia una visione: scende in fondo nel gruppo “Archivio” e smette di proporre task in Today. Resta cercabile e apribile — cercando, l’archivio si apre da solo.'],
     ],
   },
   tree: {

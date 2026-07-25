@@ -69,7 +69,12 @@ const slashValue = (key) => {
     default:      return ''
   }
 }
+// Due famiglie di comandi:
+//  - INSERIMENTO: sostituiscono il token /parola con del testo (date, ore…);
+//  - AZIONE (`azione: true`): tolgono il token e fanno qualcosa alla riga.
 const SLASH_CMDS = [
+  { key: 'check', label: '/check', desc: 'aggiungi un checkbox alla riga', azione: true, prev: '☐' },
+  { key: 'oggi',  label: '/oggi',  desc: 'porta la riga fra le task di oggi', azione: true, prev: '⚡' },
   { key: 'date',  label: '/date',  desc: 'giorno mese anno' },
   { key: 'sdate', label: '/sdate', desc: 'giorno e mese abbreviato' },
   { key: 'ndate', label: '/ndate', desc: 'gg/mm/aaaa' },
@@ -93,7 +98,7 @@ function parseIndented(text, base = 0) {
 // Editor della singola VISTA: blocchi markdown, drag&drop (riordino + nidificazione),
 // click=modifica · doppio click=copia · icona cestino=elimina (con recupero 7 giorni),
 // selezione multipla + copia/taglia/incolla di sezioni intere, undo/redo.
-export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate }) {
+export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday }) {
   const [stagePick, setStagePick] = useState(false)
   const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [title, setTitle] = useState(vista.titolo || '')
@@ -213,6 +218,79 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     commit(next)
     syncDueToCalendar(prev, due || '')
   }
+  // ---- CHECKBOX di riga (/check) -------------------------------------------
+  // `check` = la riga ha un checkbox · `done` = è spuntata.
+  // Sono proprietà della riga, non testo: così restano leggibili anche se il
+  // contenuto cambia, e Today può spuntarle da fuori senza toccare il markdown.
+  // `testo` (facoltativo) viene applicato nello stesso commit: serve a /check,
+  // che deve anche togliere il token "/check" dal testo.
+  const setCheck = (id, on, testo) => {
+    const next = blocks.map(b => b.id === id
+      ? {
+        ...b,
+        check: on || undefined,
+        done: on ? (b.done || undefined) : undefined,
+        ...(testo !== undefined ? { text: testo } : {}),
+      }
+      : b)
+    commit(next)
+  }
+  const toggleCheck = (id) => {
+    const b = blocks.find(x => x.id === id)
+    if (b) setCheck(id, !b.check)
+  }
+  // spunta / de-spunta (solo per le righe che hanno il checkbox)
+  const toggleDone = (id) => {
+    const next = blocks.map(b => b.id === id ? { ...b, done: b.done ? undefined : true } : b)
+    commit(next)
+  }
+  // stesso comando sulle righe selezionate: se ne ha già una, si toglie a tutte
+  const toggleCheckMany = () => {
+    if (!selected.size) return
+    const tutteCheck = blocks.filter(b => selected.has(b.id)).every(b => b.check)
+    const next = blocks.map(b => selected.has(b.id)
+      ? { ...b, check: tutteCheck ? undefined : true, done: tutteCheck ? undefined : b.done }
+      : b)
+    commit(next)
+  }
+
+  // ---- TELETRASPORTO in Today (/oggi) ---------------------------------------
+  // Porta la riga fra le task di oggi. La riga resta dov'è: la task che nasce la
+  // referenzia (vista_id + blocco_id), non la copia. Se non ha una scadenza le
+  // mettiamo oggi, così resta coerente con Pipe e con la sync Calendar.
+  const mandaOggi = (b, testo) => {
+    if (!onSendToToday) return
+    const testoPulito = ((testo !== undefined ? testo : b.text) || '').replace(/[#*`>]/g, '').trim()
+    if (!testoPulito) { setToast('⚠️ Riga vuota: niente da fare oggi'); setTimeout(() => setToast(''), 1600); return }
+    const oggiIso = new Date(); const p = n => String(n).padStart(2, '0')
+    const oggiKey = `${oggiIso.getFullYear()}-${p(oggiIso.getMonth() + 1)}-${p(oggiIso.getDate())}`
+    // il commit locale: testo ripulito dal token + checkbox + scadenza di oggi
+    const next = blocks.map(x => x.id === b.id
+      ? { ...x, ...(testo !== undefined ? { text: testo } : {}), check: true, due: x.due || oggiKey, oggi: true }
+      : x)
+    commit(next)
+    onSendToToday({ blocco: { ...b, text: testoPulito }, giorno: oggiKey })
+    setToast('⚡ Portata in Today')
+    setTimeout(() => setToast(''), 1600)
+  }
+  // Su più righe: UN SOLO commit. Chiamare mandaOggi in ciclo farebbe partire
+  // ogni commit dallo stesso `blocks` di partenza e vincerebbe solo l'ultimo.
+  const mandaOggiMany = () => {
+    if (!selected.size || !onSendToToday) return
+    const targets = blocks.filter(b => selected.has(b.id) && (b.text || '').trim())
+    if (!targets.length) return
+    const p = n => String(n).padStart(2, '0')
+    const d = new Date()
+    const oggiKey = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    const ids = new Set(targets.map(b => b.id))
+    commit(blocks.map(b => ids.has(b.id) ? { ...b, check: true, due: b.due || oggiKey, oggi: true } : b))
+    targets.forEach(b => onSendToToday({
+      blocco: { ...b, text: (b.text || '').replace(/[#*`>]/g, '').trim() }, giorno: oggiKey,
+    }))
+    setToast(`⚡ ${targets.length} righe in Today`)
+    setTimeout(() => setToast(''), 1600)
+  }
+
   // imposta la stessa scadenza su tutte le righe selezionate ('' = rimuovi)
   const setDueMany = (due) => {
     if (!selected.size) return
@@ -380,6 +458,24 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
         if (editing) { e.preventDefault(); setDuePick(editing) }
         else if (selectMode && selected.size) { e.preventDefault(); setBulkDue(true) }
+      }
+      // Ctrl+Shift+T = porta in Today (riga in modifica, ultima toccata, o selezione)
+      else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        if (selectMode && selected.size) { e.preventDefault(); mandaOggiMany() }
+        else {
+          const id = editing || lastEdit.current
+          const b = id && blocks.find(x => x.id === id)
+          if (b) { e.preventDefault(); mandaOggi(b) }
+        }
+      }
+      // Ctrl+Shift+K = aggiungi/togli il checkbox (K come "check": Ctrl+Shift+C
+      // è già preso dagli strumenti sviluppatore del browser)
+      else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
+        if (selectMode && selected.size) { e.preventDefault(); toggleCheckMany() }
+        else {
+          const id = editing || lastEdit.current
+          if (id) { e.preventDefault(); toggleCheck(id) }
+        }
       }
       // ---- scorciatoie in MODALITÀ SELEZIONE (solo fuori dai campi di testo) ----
       else if (selectMode && selected.size && e.key === 'Delete') {
@@ -1281,6 +1377,21 @@ ${rowsHtml}
     const val = b.text
     const before = val.slice(0, slash.start)
     const after = val.slice(slash.start + 1 + slash.query.length)
+
+    // comandi AZIONE: il token sparisce e l'effetto è sulla riga, non sul testo
+    if (cmd.azione) {
+      const pulito = (before + after).replace(/\s+$/, '')
+      setSlash(null)
+      if (cmd.key === 'check') setCheck(b.id, true, pulito)
+      else if (cmd.key === 'oggi') mandaOggi(b, pulito)
+      const caretAz = before.length
+      requestAnimationFrame(() => {
+        const el = editRef.current
+        if (el) { try { el.focus(); el.selectionStart = el.selectionEnd = Math.min(caretAz, el.value.length); autosize(el) } catch { /* ignore */ } }
+      })
+      return
+    }
+
     const ins = slashValue(cmd.key)
     const nv = before + ins + after
     setText(b.id, nv)
@@ -1496,6 +1607,10 @@ ${rowsHtml}
             <li><b className="hint-cat" /> <span>Trascina ←/→ per nidificare</span></li>
             <li><b className="hint-cat" /> <span>Su mobile: tieni premuto e sposta</span></li>
 
+            <li className="grp"><b className="hint-cat">Task</b> <span><code>/check</code> o <code>Ctrl+⇧+K</code> = checkbox sulla riga</span></li>
+            <li><b className="hint-cat" /> <span><code>/oggi</code> o <code>Ctrl+⇧+T</code> = porta la riga in Today</span></li>
+            <li><b className="hint-cat" /> <span>Spuntata qui = spuntata anche in Today, e viceversa</span></li>
+
             <li className="grp"><b className="hint-cat">Testo</b> <span><code>Ctrl+B</code> = grassetto · <code>Ctrl+I</code> = corsivo</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+M</code> o <b>AA</b> = MAIUSCOLO</span></li>
             <li><b className="hint-cat" /> <span><code>/</code> = scorciatoie data/ora</span></li>
@@ -1559,7 +1674,7 @@ ${rowsHtml}
         return (
         <div key={b.id} className="block-wrap">
         <div data-block-id={b.id} data-noswipe=""
-          className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '')}
+          className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '') + (b.check ? ' has-check' : '') + (b.check && b.done ? ' row-done' : '')}
           draggable={editing !== b.id && (!selectMode || selected.has(b.id))}
           onDragStart={e => onDragStart(e, b.id)}
           onDragOver={e => onDragOver(e, b.id)}
@@ -1575,6 +1690,15 @@ ${rowsHtml}
             <span className={'sel-box' + (isSel ? ' on' : '')} data-block-id={b.id}
               onPointerDown={e => { e.preventDefault(); if (e.shiftKey) selectRange(b.id); else selDragOn(b.id) }}
               onPointerEnter={() => { if (selDrag.current) selDragEnter(b.id) }}>{isSel ? '✓' : ''}</span>
+          )}
+          {/* checkbox di riga (/check): sta FUORI dal ramo editing/lettura, così
+              resta visibile e cliccabile anche mentre scrivi nella riga */}
+          {b.check && (
+            <label className="row-check" data-noswipe="" title={b.done ? 'Fatta — clicca per riaprirla' : 'Da fare — clicca quando è fatta'}>
+              <input type="checkbox" checked={!!b.done} onChange={() => toggleDone(b.id)}
+                aria-label={b.done ? 'Segna come da fare' : 'Segna come completata'} />
+              <span className="today-box" />
+            </label>
           )}
           {editing === b.id ? (
             <div className="row-edit" data-noswipe=""
@@ -1636,7 +1760,7 @@ ${rowsHtml}
                     onPointerDown={e => { e.preventDefault(); applySlash(c) }}>
                     <b className="slash-key">{c.label}</b>
                     <span className="slash-desc">{c.desc}</span>
-                    <span className="slash-prev">{slashValue(c.key)}</span>
+                    <span className="slash-prev">{c.azione ? c.prev : slashValue(c.key)}</span>
                   </button>
                 ))}
               </div>
@@ -1692,6 +1816,14 @@ ${rowsHtml}
                     title={b.due ? 'Scadenza: ' + b.due + ' — clicca per modificare' : 'Imposta una scadenza per questa riga'}
                     onClick={() => { setDuePick(b.id); setMenuId(null) }}>📅</button>
                 </div>
+                <button className={'iconbtn row-check-btn' + (b.check ? ' on' : '')}
+                  title={b.check ? 'Togli il checkbox (/check)' : 'Aggiungi un checkbox alla riga (/check)'}
+                  onClick={() => { toggleCheck(b.id); setMenuId(null) }}>☑</button>
+                {onSendToToday && (
+                  <button className={'iconbtn row-oggi' + (b.oggi ? ' on' : '')}
+                    title="Porta questa riga fra le task di oggi (/oggi · Ctrl+Shift+T)"
+                    onClick={() => { mandaOggi(b); setMenuId(null) }}>⚡</button>
+                )}
                 <button className="iconbtn row-img" title="Allega un'immagine a questa riga"
                   onClick={() => { openImagePicker(b.id); setMenuId(null) }} disabled={imgBusy}>🖼</button>
                 {b.text && (

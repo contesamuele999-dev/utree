@@ -5,10 +5,17 @@ import { cacheVistaLocal } from './localcache.js'
 export async function exportBackup() {
   let data
   try {
-    const [vite, visioni, viste, links] = await Promise.all([
+    // Le tabelle di Today possono non esistere (migrazione non ancora eseguita):
+    // un backup deve riuscire lo stesso, semmai senza quella parte.
+    const opz = (p) => p.catch(() => [])
+    const [vite, visioni, viste, links, task, ricorrenza, giorno] = await Promise.all([
       store.list('vite'), store.list('visioni'), store.list('viste'), store.list('links'),
+      opz(store.list('task')), opz(store.list('ricorrenza')), opz(store.list('giorno')),
     ])
-    data = { app: 'arbora', version: 1, exportedAt: new Date().toISOString(), vite, visioni, viste, links }
+    data = {
+      app: 'arbora', version: 2, exportedAt: new Date().toISOString(),
+      vite, visioni, viste, links, task, ricorrenza, giorno,
+    }
   } catch (e) {
     alert('Impossibile leggere i dati per il backup: ' + (e?.message || e))
     throw e
@@ -97,5 +104,40 @@ export async function importBackup(file) {
     if (map[l.da_vista] && map[l.a_vista]) {
       try { await store.insert('links', { da_vista: map[l.da_vista], a_vista: map[l.a_vista], tipo: l.tipo || 'maggiore' }) } catch {}
     }
+  }
+
+  // ---- Today: regole ricorrenti, task e giornate ----
+  // Prima le regole (le task le referenziano), poi le task, poi le giornate.
+  // Se le tabelle non esistono ancora si salta senza far fallire l'import:
+  // meglio recuperare note e viste che bloccare tutto.
+  for (const r of data.ricorrenza || []) {
+    try {
+      const nr = await store.insert('ricorrenza', {
+        text: r.text || '', tipo: r.tipo || 'giornaliera', giorni: r.giorni || null,
+        ogni: r.ogni || 1, dal: r.dal, al: r.al || null, attiva: r.attiva !== false,
+        vista_id: map[r.vista_id] || null, blocco_id: r.blocco_id || null,
+        ordine: r.ordine || 0, ultima_gen: r.ultima_gen || null,
+      })
+      map[r.id] = nr.id
+    } catch { /* tabella assente: si prosegue */ }
+  }
+  for (const t of data.task || []) {
+    try {
+      await store.insert('task', {
+        giorno: t.giorno, text: t.text || '', done: !!t.done, done_at: t.done_at || null,
+        ordine: t.ordine || 0,
+        vista_id: map[t.vista_id] || null, blocco_id: t.blocco_id || null,
+        origin_giorno: t.origin_giorno || t.giorno, rollover: t.rollover || 0,
+        ricorrenza_id: map[t.ricorrenza_id] || null,
+      })
+    } catch { /* tabella assente: si prosegue */ }
+  }
+  for (const g of data.giorno || []) {
+    try {
+      await store.upsertGiorno(g.giorno, {
+        vittoria: g.vittoria || null, mood: g.mood || null,
+        nota: g.nota || null, chiuso_at: g.chiuso_at || null,
+      })
+    } catch { /* tabella assente: si prosegue */ }
   }
 }

@@ -1024,3 +1024,236 @@ a { color: var(--accent); text-decoration: none; }
   .stats-cards { grid-template-columns: 1fr 1fr; }
   .fab-wrap { right: 14px; bottom: 14px; }
 }
+
+/* ============================================================
+   TODAY — le task della giornata.
+   Nessun rosso sulle task aperte: il colore forte è riservato
+   alla soddisfazione (barra piena, streak), non al rimprovero.
+   ============================================================ */
+.today { padding-bottom: 100px; }
+
+/* --- barra di completamento + streak --- */
+.today-summary { display: flex; align-items: center; gap: 10px; padding: 6px 18px 12px; }
+.today-bar {
+  flex: 1; min-width: 0; height: 8px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--border); overflow: hidden;
+}
+.today-bar-fill {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--green-deep), var(--green-bright));
+  transition: width .35s cubic-bezier(.4, 0, .2, 1);
+}
+.today-bar-fill.full { animation: today-pulse .5s ease-out 1; }
+@keyframes today-pulse {
+  0% { filter: brightness(1); }
+  45% { filter: brightness(1.5); }
+  100% { filter: brightness(1); }
+}
+.today-pct { font-size: 12px; color: var(--text-dim); min-width: 34px; text-align: right; }
+
+.today-streak {
+  flex: 0 0 auto; font-size: 12px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--green-deep); color: var(--green-bright);
+  background: color-mix(in srgb, var(--green-bright) 10%, transparent);
+  white-space: nowrap;
+}
+/* "in pausa" e "nuovo inizio" restano neutri: mai allarmanti */
+.today-streak.pausa { border-color: var(--border); color: var(--text-dim); background: transparent; }
+.today-streak.nuovo { border-color: var(--border); color: var(--text-dim); background: transparent; }
+
+.today-avviso {
+  margin: 0 18px 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  color: var(--text-dim); font-size: 12.5px;
+}
+
+/* --- elenco --- */
+.today-list { list-style: none; margin: 0; padding: 0 12px; display: flex; flex-direction: column; gap: 2px; }
+.today-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 10px;
+  border: 1px solid transparent;
+  transition: background .18s ease, opacity .18s ease, border-color .18s ease;
+}
+.today-item:hover { background: var(--panel); }
+.today-item.dragging { opacity: .45; }
+.today-item.over { border-color: var(--green-bright); background: var(--panel-2); }
+
+/* task completata: grigia e barrata, senza salti di layout */
+.today-item.done { opacity: .5; }
+.today-item.done .today-text { text-decoration: line-through; color: var(--text-dim); }
+
+.today-check { flex: 0 0 auto; display: inline-flex; cursor: pointer; }
+.today-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.today-box {
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 1.5px solid var(--border); background: var(--bg-2);
+  display: inline-block; position: relative;
+  transition: border-color .15s ease, background .15s ease;
+}
+.today-check:hover .today-box { border-color: var(--green); }
+.today-check input:focus-visible + .today-box { outline: 2px solid var(--green-bright); outline-offset: 2px; }
+.today-check input:checked + .today-box {
+  background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
+  border-color: var(--green-deep);
+}
+.today-check input:checked + .today-box::after {
+  content: '✓'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #06160e;
+}
+
+.today-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; cursor: text; word-break: break-word; }
+.today-edit, .today-new {
+  flex: 1; min-width: 0; background: var(--bg-2); border: 1px solid var(--green-deep);
+  border-radius: 8px; color: var(--text); font: inherit; font-size: 14.5px;
+  padding: 6px 10px; outline: none;
+}
+.today-new { border-color: var(--border); }
+.today-new:focus { border-color: var(--green); }
+.today-add:hover { background: transparent; }
+.drag-handle.ghost { opacity: .35; cursor: default; }
+
+/* --- badge e chip di origine --- */
+.today-badges { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.today-badge {
+  font-size: 11px; padding: 2px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.today-badge.ric { border-color: var(--green-deep); color: var(--green-bright); }
+.today-badge.rinvii { border-color: var(--due-week); color: var(--due-week); }
+.today-badge.orfana { border-color: var(--border); opacity: .6; }
+.today-chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 999px; max-width: 140px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-dim);
+}
+.today-chip:hover { border-color: var(--green); color: var(--text); }
+
+/* --- piede ed empty state --- */
+.today-foot { display: flex; align-items: center; gap: 10px; padding: 12px 18px; }
+.today-foot .iconbtn.mini { width: auto; padding: 0 10px; }
+.today-complete { font-size: 12.5px; color: var(--green-bright); }
+.today-empty { padding: 40px 18px; text-align: center; color: var(--text-dim); }
+.today-empty p { margin: 0 0 6px; font-size: 15px; color: var(--text); }
+.today-empty p.sub { font-size: 13px; color: var(--text-dim); }
+
+@media (prefers-reduced-motion: reduce) {
+  .today-bar-fill { transition: none; }
+  .today-bar-fill.full { animation: none; }
+}
+
+/* ---- checkbox di riga nell'editor (/check) ----
+   Riusa .today-box, così una task spuntata ha lo stesso aspetto
+   ovunque la si incontri: nella nota o in Today. */
+.row-check { flex: 0 0 auto; display: inline-flex; align-items: center; cursor: pointer; margin-right: 2px; }
+.row-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.row-check .today-box { width: 18px; height: 18px; }
+.row-check:hover .today-box { border-color: var(--green); }
+.row-check input:focus-visible + .today-box { outline: 2px solid var(--green-bright); outline-offset: 2px; }
+.row-check input:checked + .today-box {
+  background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
+  border-color: var(--green-deep);
+}
+.row-check input:checked + .today-box::after {
+  content: '✓'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #06160e;
+}
+
+/* riga completata: grigia e barrata, come in Today */
+.block.row-done .rendered { opacity: .5; text-decoration: line-through; }
+.block.row-done .due-badge { opacity: .5; }
+
+/* ---- Proposte di oggi ---- */
+.today-proposte { margin-top: 18px; border-top: 1px dashed var(--border); }
+.today-proposte-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px 6px; }
+.today-item.today-proposta { opacity: .8; }
+.today-item.today-proposta:hover { opacity: 1; }
+.today-take {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 8px;
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-dim); font-size: 14px;
+}
+.today-take:hover { border-color: var(--green-bright); color: var(--green-bright); }
+.today-badge.scaduta { border-color: var(--due-over); color: var(--due-over); }
+
+/* ---- Rito serale ---- */
+.today-sera {
+  margin: 18px 12px 0; padding: 16px; border-radius: var(--radius);
+  background: var(--panel); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.today-sera h3 { margin: 0; font-size: 16px; }
+.today-sera .crumb { margin: -4px 0 0; }
+.today-sera.chiusa { border-color: var(--green-deep); }
+.today-vittoria { margin: 0; font-size: 15px; font-style: italic; color: var(--green-bright); }
+.today-mood { display: flex; gap: 8px; }
+.mood-btn {
+  width: 42px; height: 42px; border-radius: 12px; font-size: 20px;
+  background: var(--bg-2); border: 1px solid var(--border); filter: grayscale(1); opacity: .6;
+  transition: filter .15s ease, opacity .15s ease, border-color .15s ease;
+}
+.mood-btn:hover { opacity: .9; filter: grayscale(.4); }
+.mood-btn.on { filter: none; opacity: 1; border-color: var(--green-deep); background: var(--panel-2); }
+
+/* ---- Riepilogo settimanale ---- */
+.today-settimana { margin: 18px 18px 0; }
+.today-sett-body { padding: 8px 2px 0; }
+.today-vittorie { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.today-vittorie li { font-size: 14px; }
+.today-vittorie .crumb { margin-right: 8px; }
+
+/* ---- Pannello task ricorrenti ---- */
+.ric-pop {
+  width: min(560px, 94vw); max-height: 88vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.ric-head { display: flex; align-items: center; gap: 10px; }
+.ric-head h3 { margin: 0; font-size: 17px; }
+.ric-nota { margin: -6px 0 0; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+.ric-list { display: flex; flex-direction: column; gap: 6px; }
+.ric-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: 10px; background: var(--bg-2); border: 1px solid var(--border);
+}
+.ric-row.spenta { opacity: .55; }
+.ric-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ric-text { font-size: 14px; }
+.ric-tenuta { font-size: 12px; color: var(--green-bright); }
+.ric-form { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; border-top: 1px solid var(--border); }
+.ric-tipi, .ric-giorni { display: flex; flex-wrap: wrap; gap: 6px; }
+.ric-mese { max-height: 132px; overflow-y: auto; }
+.pillbtn.mini { padding: 4px 9px; font-size: 12px; min-width: 34px; }
+.pillbtn.on { border-color: var(--green-deep); color: var(--green-bright); background: color-mix(in srgb, var(--green-bright) 12%, transparent); }
+.ric-campo { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+.input.mini { width: auto; padding: 6px 10px; font-size: 13px; }
+.ric-periodo { display: flex; gap: 12px; flex-wrap: wrap; }
+.ric-hint { margin: 0; font-size: 12px; color: var(--text-dim); }
+.ric-anteprima { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ric-chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--border); }
+
+/* ---- Tenuta delle ricorrenti (Statistiche) ---- */
+.tenuta-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.tenuta-row { display: flex; align-items: center; gap: 10px; }
+.tenuta-text { flex: 0 0 34%; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tenuta-bar { flex: 1; height: 7px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--border); overflow: hidden; }
+.tenuta-fill { height: 100%; background: linear-gradient(90deg, var(--green-deep), var(--green-bright)); }
+
+/* ---- Archivio delle visioni in Pipe ---- */
+.archivio-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 18px 18px 6px; margin-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.archivio-toggle {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 999px; padding: 5px 12px; font-size: 13px;
+}
+.archivio-toggle:hover { border-color: var(--green); color: var(--text); }
+/* archiviata = più discreta, non nascosta */
+.vision-drop-wrap.archiviata .vision-block { opacity: .62; }
+.vision-drop-wrap.archiviata .vision-block:hover { opacity: 1; }
+
+.iconbtn.row-check-btn.on { border-color: var(--green-deep); color: var(--green-bright); }
+.iconbtn.row-oggi.on { border-color: var(--green-deep); color: var(--green-bright); }

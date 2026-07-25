@@ -3,6 +3,8 @@ import { useAuth } from './lib/auth.jsx'
 import { store } from './lib/store.js'
 import Auth from './pages/Auth.jsx'
 import Editor from './views/Editor.jsx'
+import Today from './views/Today.jsx'
+import Ricorrenti from './views/Ricorrenti.jsx'
 import Pipeline from './views/Pipeline.jsx'
 import Tree from './views/Tree.jsx'
 import Links from './views/Links.jsx'
@@ -17,8 +19,10 @@ import { importGoogleKeep } from './lib/keepImport.js'
 import { RenderedBlock } from './lib/markdown.jsx'
 import { DEFAULT_STAGE } from './lib/stages.js'
 import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino } from './lib/localcache.js'
+import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
 
 const TABS = [
+  { id: 'today', label: 'Today' },
   { id: 'pipe', label: 'Pipe' },
   { id: 'tree', label: 'Tree' },
   { id: 'links', label: 'Links' },
@@ -27,7 +31,7 @@ const TABS = [
 
 export default function App() {
   const { user, loading, signOut, isDemo } = useAuth()
-  const [tab, setTab] = useState('pipe')
+  const [tab, setTab] = useState('today')
   const [tabDir, setTabDir] = useState(0)      // -1 sx, +1 dx (per l'animazione swipe)
   const [swipeHint, setSwipeHint] = useState(null)   // { scope, dir, ready, label } feedback live durante lo swipe
   const swipeHintRef = useRef('')
@@ -35,6 +39,12 @@ export default function App() {
   const [visioni, setVisioni] = useState([])
   const [viste, setViste] = useState([])
   const [links, setLinks] = useState([])
+  const [task, setTask] = useState([])          // Today: le task di tutti i giorni (serve lo storico per lo streak)
+  const [regole, setRegole] = useState([])      // Today: regole delle task ricorrenti
+  const [giorni, setGiorni] = useState([])      // Today: il rito serale, una riga per data
+  const [ricorrentiOpen, setRicorrentiOpen] = useState(null)   // null | { iniziale?: string } pannello regole
+  const todayWarned = useRef(false)             // avviso "esegui la migrazione" una volta sola
+  const manutFatta = useRef(null)               // giorno per cui rollover+ricorrenti sono già girati
   const [vistaAperta, setVistaAperta] = useState(null)
   const [vistaStack, setVistaStack] = useState([])   // storia delle viste aperte via link/ricerca (per il tasto ←)
   const [jumpText, setJumpText] = useState(null)     // termine cercato: la vista aperta scrolla alla riga che lo contiene
@@ -65,9 +75,14 @@ export default function App() {
   const reload = useCallback(async () => {
     // resiliente: se una singola query fallisce non azzeriamo tutta l'app
     const safe = (p) => p.catch(e => { console.warn('[reload] lettura fallita:', e?.message || e); return [] })
-    const [vt, vs, allViste, allLinks] = await Promise.all([
+    const [vt, vs, allViste, allLinks, allTask, allRegole] = await Promise.all([
       safe(store.list('vite')), safe(store.list('visioni')), safe(store.list('viste')), safe(store.list('links')),
+      safe(store.list('task')), safe(store.list('ricorrenza')),
     ])
+    const allGiorni = await safe(store.list('giorno'))
+    setTask(allTask)
+    setRegole(allRegole)
+    setGiorni(allGiorni)
     defaultVita.current = vt[0] || null
     // separa la visione-contenitore dei template dalle visioni reali (mostrate all'utente)
     templateVis.current = vs.find(v => v.titolo === TEMPLATE_VIS) || null
@@ -80,7 +95,230 @@ export default function App() {
     const ids = new Set(merged.map(v => v.id))
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
     flushDirtyToCloud(store)   // ri-spedisce in background ciò che non era stato salvato sul cloud
+    manutenzioneToday(allTask, allRegole)
   }, [])
+
+  // ---- TODAY: manutenzione di inizio giornata ---------------------------------
+  // Gira PIGRA alla prima apertura di ogni giorno (niente cron):
+  //   1) le task aperte dei giorni scorsi passano a oggi (le ricorrenti no);
+  //   2) si materializzano le istanze delle regole ricorrenti.
+  // Il flag su localStorage impedisce di rifarla più volte nello stesso giorno:
+  // senza, aprendo l'app due volte il contatore `rollover` crescerebbe a doppio.
+  // Il flag si scrive SOLO a operazione riuscita, così se si è offline si ritenta.
+  const manutenzioneToday = useCallback(async (tk, rc) => {
+    const oggi = todayKey()
+    const CHIAVE = 'arbora-today-manut'
+    if (manutFatta.current === oggi) return
+    if (localStorage.getItem(CHIAVE) === oggi) { manutFatta.current = oggi; return }
+
+    const patches = pianificaRollover({ task: tk, oggi })
+    const { daCreare, genUpdates } = pianificaRicorrenti({ regole: rc, task: tk, oggi })
+    if (!patches.length && !daCreare.length && !genUpdates.length) {
+      manutFatta.current = oggi
+      localStorage.setItem(CHIAVE, oggi)
+      return
+    }
+    try {
+      for (const p of patches) await store.update('task', p.id, p.patch)
+      const nuove = daCreare.length ? await store.insertMany('task', daCreare) : []
+      for (const g of genUpdates) await store.update('ricorrenza', g.id, { ultima_gen: g.ultima_gen })
+
+      setTask(prev => {
+        const byId = new Map(prev.map(t => [t.id, t]))
+        for (const p of patches) if (byId.has(p.id)) byId.set(p.id, { ...byId.get(p.id), ...p.patch })
+        for (const n of nuove) byId.set(n.id, n)
+        return [...byId.values()]
+      })
+      setRegole(prev => prev.map(r => {
+        const g = genUpdates.find(x => x.id === r.id)
+        return g ? { ...r, ultima_gen: g.ultima_gen } : r
+      }))
+      manutFatta.current = oggi
+      localStorage.setItem(CHIAVE, oggi)
+    } catch (e) {
+      // niente flag: si ritenta alla prossima apertura (es. offline al primo avvio)
+      console.warn('[today] manutenzione rimandata:', e?.message || e)
+    }
+  }, [])
+
+  // ---- TODAY: operazioni sulle task ------------------------------------------
+  // Tutte ottimistiche: la UI si aggiorna subito, il cloud segue. Se la tabella
+  // non esiste ancora (migrazione non eseguita) lo diciamo una volta sola.
+  const avvisaMigrazione = (e) => {
+    console.warn('[today]', e?.message || e)
+    if (todayWarned.current) return
+    todayWarned.current = true
+    alert('La sezione Today ha bisogno delle sue tabelle.\nEsegui su Supabase il file migrazione_today.sql (SQL Editor).')
+  }
+
+  const addTask = async (dati) => {
+    const tmp = { id: 'tmp-' + Math.random().toString(36).slice(2, 9), done: false, rollover: 0, origin_giorno: dati.giorno, ...dati }
+    setTask(ts => [...ts, tmp])
+    try {
+      const saved = await store.insert('task', { ...dati, done: false, rollover: 0, origin_giorno: dati.giorno })
+      setTask(ts => ts.map(t => t.id === tmp.id ? saved : t))
+    } catch (e) {
+      setTask(ts => ts.filter(t => t.id !== tmp.id))   // rollback: meglio niente che una task fantasma
+      avvisaMigrazione(e)
+    }
+  }
+
+  const toggleTask = async (t) => {
+    const done = !t.done
+    const patch = { done, done_at: done ? new Date().toISOString() : null }
+    setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
+    // bidirezionale: se la task viene da una riga di vista, la riga la segue
+    if (t.vista_id && t.blocco_id) syncRigaDaTask(t, done)
+    try { await store.update('task', t.id, patch) }
+    catch (e) {
+      setTask(ts => ts.map(x => x.id === t.id ? { ...x, done: t.done, done_at: t.done_at } : x))
+      avvisaMigrazione(e)
+    }
+  }
+
+  // Spuntare in Today marca la riga d'origine come fatta e le toglie la scadenza:
+  // la stessa cosa non deve risultare "da fare" in due posti diversi.
+  const syncRigaDaTask = (t, done) => {
+    const v = viste.find(x => x.id === t.vista_id)
+    if (!v) return
+    if (!(v.blocchi || []).some(b => b.id === t.blocco_id)) return   // riga già eliminata: task orfana
+    const blocchi = v.blocchi.map(b => b.id === t.blocco_id
+      ? { ...b, done, ...(done ? { due: undefined } : {}) }
+      : b)
+    saveVista({ ...v, blocchi })
+  }
+
+  const editTaskText = async (t, text) => {
+    setTask(ts => ts.map(x => x.id === t.id ? { ...x, text } : x))
+    try { await store.update('task', t.id, { text }) } catch (e) { avvisaMigrazione(e) }
+  }
+
+  const deleteTask = async (t) => {
+    setTask(ts => ts.filter(x => x.id !== t.id))
+    try { await store.remove('task', t.id) } catch (e) { avvisaMigrazione(e) }
+  }
+
+  // Riordino: si riscrive `ordine` sull'elenco del giorno, così resta stabile
+  // anche dopo un reload da un altro dispositivo.
+  const reorderTask = async (dragId, targetId) => {
+    const oggi = todayKey()
+    const delGiorno = task.filter(t => t.giorno === oggi).sort((a, b) => (a.ordine || 0) - (b.ordine || 0))
+    const from = delGiorno.findIndex(t => t.id === dragId)
+    const to = delGiorno.findIndex(t => t.id === targetId)
+    if (from < 0 || to < 0 || from === to) return
+    const next = [...delGiorno]
+    next.splice(to, 0, next.splice(from, 1)[0])
+    const conOrdine = next.map((t, i) => ({ ...t, ordine: i }))
+    setTask(ts => ts.map(t => conOrdine.find(x => x.id === t.id) || t))
+    try {
+      for (const t of conOrdine) if (t.ordine !== delGiorno.find(x => x.id === t.id)?.ordine)
+        await store.update('task', t.id, { ordine: t.ordine })
+    } catch (e) { avvisaMigrazione(e) }
+  }
+
+  const openOrigineTask = (t) => {
+    const v = viste.find(x => x.id === t.vista_id)
+    if (v) openFromList(v)
+  }
+
+  // Teletrasporto: una riga dell'editor diventa una task di oggi. La task
+  // REFERENZIA la riga (vista_id + blocco_id), non la duplica: spuntare da una
+  // parte si riflette dall'altra. Se la riga è già in Today non se ne creano due.
+  const sendToToday = async ({ blocco, giorno }, vistaId) => {
+    const vid = vistaId || vistaAperta?.id
+    if (!vid || !blocco?.id) return
+    if (task.some(t => t.vista_id === vid && t.blocco_id === blocco.id && !t.done)) return
+    const ordini = task.filter(t => t.giorno === giorno).map(t => t.ordine || 0)
+    await addTask({
+      text: blocco.text || '',
+      giorno,
+      ordine: (ordini.length ? Math.max(...ordini) : 0) + 1,
+      vista_id: vid,
+      blocco_id: blocco.id,
+    })
+  }
+
+  // Accetta una proposta: la riga scaduta/di oggi diventa una task e prende il
+  // checkbox nella nota di origine, così le due cose restano la stessa cosa.
+  const accettaProposta = async (p) => {
+    const oggi = todayKey()
+    const ordini = task.filter(t => t.giorno === oggi).map(t => t.ordine || 0)
+    await addTask({
+      text: p.text, giorno: oggi,
+      ordine: (ordini.length ? Math.max(...ordini) : 0) + 1,
+      vista_id: p.vista_id, blocco_id: p.blocco_id,
+    })
+    const v = viste.find(x => x.id === p.vista_id)
+    if (v) saveVista({ ...v, blocchi: (v.blocchi || []).map(b => b.id === p.blocco_id ? { ...b, check: true } : b) })
+  }
+
+  // ---- TODAY: regole ricorrenti ----------------------------------------------
+  // Salvare una regola genera SUBITO l'istanza di oggi se le compete: altrimenti
+  // creare "ogni giorno" alle 9 del mattino non produrrebbe nulla fino a domani.
+  const salvaRegola = async (r) => {
+    const dati = {
+      text: (r.text || '').trim(), tipo: r.tipo, giorni: r.giorni?.length ? r.giorni : null,
+      ogni: r.ogni || 1, dal: r.dal || todayKey(), al: r.al || null, attiva: r.attiva !== false,
+      vista_id: r.vista_id || null, blocco_id: r.blocco_id || null,
+    }
+    try {
+      let salvata
+      if (r.id) {
+        salvata = await store.update('ricorrenza', r.id, dati)
+        setRegole(rs => rs.map(x => x.id === r.id ? salvata : x))
+      } else {
+        salvata = await store.insert('ricorrenza', dati)
+        setRegole(rs => [...rs, salvata])
+      }
+      // genera l'istanza di oggi se la regola la prevede
+      const oggi = todayKey()
+      const { daCreare } = pianificaRicorrenti({ regole: [salvata], task, oggi, maxIndietro: 0 })
+      if (daCreare.length) {
+        const nuove = await store.insertMany('task', daCreare)
+        if (nuove.length) setTask(ts => [...ts, ...nuove])
+      }
+      await store.update('ricorrenza', salvata.id, { ultima_gen: oggi }).catch(() => {})
+    } catch (e) { avvisaMigrazione(e) }
+  }
+
+  // Cancellare una regola NON tocca le istanze già generate: lo storico resta.
+  const eliminaRegola = async (r) => {
+    setRegole(rs => rs.filter(x => x.id !== r.id))
+    setTask(ts => ts.map(t => t.ricorrenza_id === r.id ? { ...t, ricorrenza_id: null } : t))
+    try { await store.remove('ricorrenza', r.id) } catch (e) { avvisaMigrazione(e) }
+  }
+
+  // ---- TODAY: rito serale -----------------------------------------------------
+  const giornoOggi = giorni.find(g => g.giorno === todayKey()) || null
+  const chiudiGiornata = async ({ vittoria, mood }) => {
+    const oggi = todayKey()
+    const patch = { vittoria, mood, chiuso_at: new Date().toISOString() }
+    setGiorni(gs => {
+      const i = gs.findIndex(g => g.giorno === oggi)
+      if (i >= 0) return gs.map(g => g.giorno === oggi ? { ...g, ...patch } : g)
+      return [...gs, { id: 'tmp-giorno', giorno: oggi, ...patch }]
+    })
+    try {
+      const saved = await store.upsertGiorno(oggi, patch)
+      setGiorni(gs => gs.map(g => g.giorno === oggi ? saved : g))
+    } catch (e) { avvisaMigrazione(e) }
+  }
+
+  // Verso opposto: spuntare la riga nell'editor spunta la task in Today.
+  // Chiamata dal salvataggio della vista, confrontando i blocchi con le task.
+  const syncTaskDaRighe = (vistaId, blocchi) => {
+    const mie = task.filter(t => t.vista_id === vistaId && t.blocco_id)
+    if (!mie.length) return
+    for (const t of mie) {
+      const b = (blocchi || []).find(x => x.id === t.blocco_id)
+      if (!b) continue
+      const done = !!b.done
+      if (done === !!t.done) continue
+      const patch = { done, done_at: done ? new Date().toISOString() : null }
+      setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
+      store.update('task', t.id, patch).catch(e => console.warn('[today] sync riga→task:', e?.message || e))
+    }
+  }
 
   useEffect(() => { setTheme(loadTheme()) }, [])
   useEffect(() => { if (user) reload() }, [user, reload])
@@ -124,6 +362,7 @@ export default function App() {
     fabOpen && (() => setFabOpen(false)),
     themeOpen && (() => setThemeOpen(false)),
     preview && (() => setPreview(null)),
+    ricorrentiOpen && (() => setRicorrentiOpen(null)),
     guide && (() => setGuide(null)),
     menu && (() => setMenu(false)),
     page && (() => setPage(null)),
@@ -391,6 +630,8 @@ export default function App() {
     const nowIso = new Date().toISOString()
     setViste(vs => vs.map(v => v.id === updated.id ? { ...v, ...updated, updated_at: nowIso } : v))
     setVistaAperta(va => (va && va.id === updated.id) ? { ...va, ...updated, updated_at: nowIso } : va)
+    // le righe con checkbox spuntate qui spuntano anche la task corrispondente in Today
+    syncTaskDaRighe(updated.id, updated.blocchi)
     // 3) salvataggio cloud con MERGE per riga: rilegge la versione cloud e fonde i
     //    blocchi per id, così le modifiche fatte in contemporanea su un altro
     //    dispositivo non vengono sovrascritte. (best-effort, fallback se manca `cestino`)
@@ -445,6 +686,31 @@ export default function App() {
         alert('Per sincronizzare le fasi sul cloud esegui su Supabase:\nALTER TABLE public.viste ADD COLUMN IF NOT EXISTS stage text DEFAULT \'' + DEFAULT_STAGE + '\';\n(Nel frattempo le fasi sono salvate solo su questo dispositivo.)')
       }
     }
+  }
+
+  // ---- Archivio visioni: toglie rumore da Pipe e da Today senza cancellare nulla.
+  //      Come per fasi e pin: se la colonna `archiviata` non esiste ancora sul cloud,
+  //      si ripiega su questo dispositivo con un avviso una tantum. ----
+  const archivioWarned = useRef(false)
+  const toggleArchivioVisione = async (vis) => {
+    const archiviata = !vis.archiviata
+    setVisioni(vs => vs.map(v => v.id === vis.id ? { ...v, archiviata } : v))
+    try {
+      await store.update('visioni', vis.id, { archiviata })
+    } catch (e) {
+      const map = JSON.parse(localStorage.getItem('arbora-archivio') || '{}')
+      if (archiviata) map[vis.id] = true; else delete map[vis.id]
+      localStorage.setItem('arbora-archivio', JSON.stringify(map))
+      if (!archivioWarned.current) {
+        archivioWarned.current = true
+        alert('Per sincronizzare l\'archivio sul cloud esegui su Supabase:\nALTER TABLE public.visioni ADD COLUMN IF NOT EXISTS archiviata boolean NOT NULL DEFAULT false;\n(Nel frattempo l\'archivio vale solo su questo dispositivo.)')
+      }
+    }
+  }
+
+  const withLocalArchivio = (vs) => {
+    const map = JSON.parse(localStorage.getItem('arbora-archivio') || '{}')
+    return vs.map(v => (v.archiviata == null && map[v.id]) ? { ...v, archiviata: true } : v)
   }
 
   const withLocalStages = (vs) => {
@@ -606,6 +872,18 @@ export default function App() {
   }
 
   const visteConFasi = withLocalPins(withLocalStages(viste))
+  const visioniConArchivio = withLocalArchivio(visioni)
+  // Proposte di oggi: righe con scadenza ≤ oggi non ancora prese in carico.
+  // Escluse template, cestino e visioni archiviate (vedi lib/today.js).
+  const proposteOggi = proposte({ viste, visioni: visioniConArchivio, task, oggi: todayKey() })
+  // Task arricchite con la loro origine: titolo della vista e visione, e il flag
+  // `orfana` se la riga di partenza è stata eliminata (la task resta, lo storico
+  // non deve mai perdere pezzi).
+  const taskConOrigine = task.map(t => {
+    if (!t.vista_id) return t
+    const v = viste.find(x => x.id === t.vista_id)
+    return { ...t, vistaTitolo: v?.titolo, visione_id: v?.visione_id, orfana: !v }
+  })
   const pageTitles = { privacy: 'Privacy', terms: 'Termini e condizioni', profile: 'Profilo', stats: 'Statistiche' }
 
   // ---------- Pagine a schermo intero (profilo, statistiche, legali) ----------
@@ -621,7 +899,7 @@ export default function App() {
           {page === 'privacy' && <Privacy />}
           {page === 'terms' && <Terms />}
           {page === 'profile' && <Profile />}
-          {page === 'stats' && <Stats viste={visteConFasi} />}
+          {page === 'stats' && <Stats viste={visteConFasi} task={task} regole={regole} giorni={giorni} />}
         </div>
       </div>
     )
@@ -639,7 +917,8 @@ export default function App() {
           <button className="iconbtn" title="Focus" onClick={() => setFocusMode(f => !f)}>{focusMode ? '🔅' : '🎯'}</button>
         </div>
         <div className="content" onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
-          <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate} />
+          <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
+            onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
         </div>
         <SwipeHint hint={swipeHint} />
         {prompt && <NamePrompt data={prompt} onClose={() => setPrompt(null)} />}
@@ -671,15 +950,26 @@ export default function App() {
 
       <div className="content" ref={contentRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         <div key={tab} className={'tab-pane ' + (tabDir < 0 ? 'from-left' : tabDir > 0 ? 'from-right' : '')}>
+          {tab === 'today' && (
+            <Today task={taskConOrigine} tuttoLoStorico={taskConOrigine} visioni={visioniConArchivio}
+              proposte={proposteOggi} giorni={giorni} giornoCorrente={giornoOggi}
+              onAdd={addTask} onToggle={toggleTask} onEditText={editTaskText}
+              onDelete={deleteTask} onReorder={reorderTask} onOpenOrigine={openOrigineTask}
+              onAccettaProposta={accettaProposta}
+              onApriRicorrenti={() => setRicorrentiOpen({})}
+              onRendiRicorrente={(t) => setRicorrentiOpen({ iniziale: t.text || '' })}
+              onChiudiGiornata={chiudiGiornata} />
+          )}
           {tab === 'pipe' && (
-            <Pipeline visioni={visioni} viste={visteConFasi}
+            <Pipeline visioni={visioniConArchivio} viste={visteConFasi}
               query={pipeQuery} onQueryChange={setPipeQuery}
               onOpen={openFromList} onPreview={setPreview}
               onAddVisione={addVisione} onAddVista={(visioneId) => addVista({ visioneId })}
               onRenameVisione={renameVisione} onRecolorVisione={recolorVisione}
               onDeleteVista={deleteVista} onDeleteVisione={deleteVisione}
               onReorderVisioni={reorderVisioni} onMoveVistaToVisione={moveVistaToVisione}
-              onTogglePin={(v) => setPinned(v.id, !v.pinned)} />
+              onTogglePin={(v) => setPinned(v.id, !v.pinned)}
+              onToggleArchivio={toggleArchivioVisione} />
           )}
           {tab === 'tree' && (
             (visioni.length || viste.length)
@@ -716,6 +1006,12 @@ export default function App() {
 
       <SwipeHint hint={swipeHint} />
 
+      {ricorrentiOpen && (
+        <Ricorrenti regole={regole} iniziale={ricorrentiOpen.iniziale}
+          tenuta={tenutaRicorrenti(task, regole)}
+          onSave={salvaRegola} onDelete={eliminaRegola}
+          onClose={() => setRicorrentiOpen(null)} />
+      )}
       {prompt && <NamePrompt data={prompt} onClose={() => setPrompt(null)} />}
       {confirm && <ConfirmModal data={confirm} onClose={() => setConfirm(null)} />}
       {guide && <GuideModal section={guide} onClose={() => setGuide(null)} />}

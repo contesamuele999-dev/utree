@@ -25,12 +25,13 @@ function urgentCls(v) {
 // e viste (card neutre con indicatore colore della fase).
 // Ricerca: priorità ai titoli delle viste, poi al contenuto.
 // ============================================================
-export default function Pipeline({ visioni, viste, query: queryProp, onQueryChange, onOpen, onPreview, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin }) {
+export default function Pipeline({ visioni, viste, query: queryProp, onQueryChange, onOpen, onPreview, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin, onToggleArchivio }) {
   // la ricerca è controllata dall'alto (App) così non si azzera aprendo/chiudendo una vista;
   // fallback a stato locale se il componente viene usato senza le prop.
   const [queryLocal, setQueryLocal] = useState('')
   const query = queryProp !== undefined ? queryProp : queryLocal
   const setQuery = onQueryChange || setQueryLocal
+  const [archivioAperto, setArchivioAperto] = useState(false)
   const [dragVisId, setDragVisId] = useState(null)
   const [overVisId, setOverVisId] = useState(null)          // visione target per lo spostamento di una VISTA (evidenzia il contenitore)
   const [reorderOver, setReorderOver] = useState(null)       // { id, edge } per il riordino VISIONI (mostra una riga separatrice)
@@ -80,6 +81,19 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
 
   const nResults = sezioni.reduce((n, s) => n + s.list.length, 0)
 
+  // Archivio: le visioni archiviate scendono in fondo, in un gruppo richiudibile.
+  // Archiviare non nasconde e non cancella: toglie rumore da Pipe e smette di
+  // proporre le loro righe scadute in Today.
+  const attive = sezioni.filter(s => !s.vis.archiviata)
+  const archiviate = sezioni.filter(s => s.vis.archiviata)
+  // durante una ricerca l'archivio si apre da solo: cercare deve trovare tutto
+  const mostraArchivio = archivioAperto || !!q
+  const daMostrare = [
+    ...attive,
+    ...(archiviate.length ? [{ archivioHeader: true, n: archiviate.length }] : []),
+    ...(mostraArchivio ? archiviate : []),
+  ]
+
   // prima vista fra i risultati (per aprirla con Invio dalla barra di ricerca)
   const firstResult = useMemo(() => {
     for (const s of sezioni) { if (s.list.length) return s.list[0].v }
@@ -126,8 +140,21 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
         </div>
       </div>
 
-      {sezioni.map(({ vis, list, total }) => (
-        <div key={vis.id} className="vision-drop-wrap">
+      {daMostrare.map((sez) => {
+        // voce sentinella: la riga separatrice del gruppo "Archivio".
+        // Sta dentro l'elenco (invece che in un secondo map) così la sezione
+        // di una visione resta definita in un punto solo.
+        if (sez.archivioHeader) return (
+          <div key="__archivio__" className="archivio-head">
+            <button className="archivio-toggle" onClick={() => setArchivioAperto(a => !a)}>
+              {mostraArchivio ? '▾' : '▸'} 📦 Archivio · {sez.n}
+            </button>
+            <span className="crumb">Restano cercabili e apribili: non propongono più task in Today.</span>
+          </div>
+        )
+        const { vis, list, total } = sez
+        return (
+        <div key={vis.id} className={'vision-drop-wrap' + (vis.archiviata ? ' archiviata' : '')}>
         <div className={'pipe-dropline'
           + (reorderOver?.id === vis.id && dragVisId && dragVisId !== vis.id ? ' show' : '')
           + (reorderOver?.edge === 'after' ? ' at-bottom' : ' at-top')} />
@@ -182,6 +209,11 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
             </label>
             <h3>{vis.titolo}</h3>
             <button className="iconbtn mini" title="Rinomina" onClick={() => onRenameVisione(vis)}>✎</button>
+            <button className={'iconbtn mini' + (vis.archiviata ? ' on' : '')}
+              title={vis.archiviata
+                ? 'Togli dall’archivio: tornerà in cima e proporrà di nuovo le sue scadenze in Today'
+                : 'Archivia: scende in fondo e smette di proporre task in Today (resta cercabile)'}
+              onClick={() => onToggleArchivio?.(vis)}>📦</button>
             <button className="iconbtn mini danger" title="Elimina visione (e tutte le sue viste)" onClick={() => onDeleteVisione(vis)}>🗑</button>
             <div className="spacer" />
             <span className="crumb">{q ? `${list.length}/${total}` : total} viste</span>
@@ -216,7 +248,8 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
           </div>
         </section>
         </div>
-      ))}
+        )
+      })}
 
       {q && nResults === 0 && !sezioni.length && (
         <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-dim)' }}>
