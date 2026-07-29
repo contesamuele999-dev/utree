@@ -28,6 +28,9 @@ const oraDelGiorno = () => new Date().getHours()
 // la giornata è tua, il limite è un'osservazione, non una regola.
 const SOGLIA_GIORNATA = 10
 
+// preferenza persistente: "sposta in fondo le task completate"
+const PREF_FATTE = 'arbora-today-fatte-fondo'
+
 export default function Today({
   task = [], tuttoLoStorico = [], visioni = [], oggi = todayKey(), proposte = [],
   giorni = [], giornoCorrente = null,
@@ -43,7 +46,11 @@ export default function Today({
   const [editText, setEditText] = useState('')
   const [dragId, setDragId] = useState(null)
   const [overId, setOverId] = useState(null)
-  const [riordinaFatte, setRiordinaFatte] = useState(false)
+  // "fatte in fondo" è una preferenza, non uno stato di sessione: si ricorda
+  // fra le aperture dell'app (prima si azzerava a ogni ricarica).
+  const [riordinaFatte, setRiordinaFatte] = useState(
+    () => { try { return localStorage.getItem(PREF_FATTE) === '1' } catch { return false } }
+  )
   const nuovaRef = useRef(null)
   const editRef = useRef(null)
 
@@ -67,6 +74,9 @@ export default function Today({
   )
 
   useEffect(() => { if (editId && editRef.current) editRef.current.focus() }, [editId])
+  useEffect(() => {
+    try { localStorage.setItem(PREF_FATTE, riordinaFatte ? '1' : '0') } catch { /* quota */ }
+  }, [riordinaFatte])
   // se la giornata era già stata annotata (senza chiuderla) si riprende da lì
   useEffect(() => {
     if (giornoCorrente && !giornoCorrente.chiuso_at) {

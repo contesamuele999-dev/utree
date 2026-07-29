@@ -25,7 +25,7 @@ function urgentCls(v) {
 // e viste (card neutre con indicatore colore della fase).
 // Ricerca: priorità ai titoli delle viste, poi al contenuto.
 // ============================================================
-export default function Pipeline({ visioni, viste, query: queryProp, onQueryChange, onOpen, onPreview, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin, onToggleArchivio }) {
+export default function Pipeline({ visioni, viste, query: queryProp, onQueryChange, onOpen, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin, onToggleArchivio }) {
   // la ricerca è controllata dall'alto (App) così non si azzera aprendo/chiudendo una vista;
   // fallback a stato locale se il componente viene usato senza le prop.
   const [queryLocal, setQueryLocal] = useState('')
@@ -235,8 +235,6 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
                     <button className={'iconbtn mini pin-btn' + (v.pinned ? ' on' : '')}
                       title={v.pinned ? 'Rimuovi da fissate' : 'Fissa in cima alla visione'}
                       onClick={e => { e.stopPropagation(); onTogglePin?.(v) }}>📌</button>
-                    <button className="iconbtn mini" title="Anteprima"
-                      onClick={e => { e.stopPropagation(); onPreview(v) }}>👁</button>
                     <button className="iconbtn mini danger" title="Elimina vista"
                       onClick={e => { e.stopPropagation(); onDeleteVista(v) }}>🗑</button>
                   </div>

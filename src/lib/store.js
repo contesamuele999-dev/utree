@@ -5,6 +5,7 @@
 // Supabase non è configurato. Così l'app gira sempre.
 // ============================================================
 import { supabase, hasSupabase } from './supabase'
+import { enqueue, isNetworkError, offlineId } from './offline.js'
 
 const LS_KEY = 'arbora-demo-db'
 
@@ -117,12 +118,21 @@ export const store = {
     return (db[table] || []).filter(row => Object.entries(filter).every(([k, v]) => row[k] === v))
   },
 
-  async insert(table, row) {
+  // `opts.noQueue` = chiamata fatta dal replay dell'outbox: non rimettere in coda.
+  async insert(table, row, opts = {}) {
     if (hasSupabase) {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase.from(table).insert({ ...row, user_id: user.id }).select().single()
-      if (error) throw error
-      return data
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from(table).insert({ ...row, user_id: user.id }).select().single()
+        if (error) throw error
+        return data
+      } catch (e) {
+        if (opts.noQueue || !isNetworkError(e)) throw e
+        // offline: riga provvisoria subito utilizzabile dalla UI, scrittura in coda
+        const tmp = { id: offlineId(), created_at: new Date().toISOString(), ...row }
+        enqueue({ op: 'insert', table, id: tmp.id, payload: row })
+        return tmp
+      }
     }
     const db = loadLocal()
     const newRow = { id: uid(), created_at: new Date().toISOString(), ...row }
@@ -131,11 +141,17 @@ export const store = {
     return newRow
   },
 
-  async update(table, id, patch) {
+  async update(table, id, patch, opts = {}) {
     if (hasSupabase) {
-      const { data, error } = await supabase.from(table).update(patch).eq('id', id).select().single()
-      if (error) throw error
-      return data
+      try {
+        const { data, error } = await supabase.from(table).update(patch).eq('id', id).select().single()
+        if (error) throw error
+        return data
+      } catch (e) {
+        if (opts.noQueue || !isNetworkError(e)) throw e
+        enqueue({ op: 'update', table, id, payload: patch })
+        return { id, ...patch }
+      }
     }
     const db = loadLocal()
     db[table] = (db[table] || []).map(r => r.id === id ? { ...r, ...patch } : r)
@@ -163,11 +179,17 @@ export const store = {
     return data
   },
 
-  async remove(table, id) {
+  async remove(table, id, opts = {}) {
     if (hasSupabase) {
-      const { error } = await supabase.from(table).delete().eq('id', id)
-      if (error) throw error
-      return
+      try {
+        const { error } = await supabase.from(table).delete().eq('id', id)
+        if (error) throw error
+        return
+      } catch (e) {
+        if (opts.noQueue || !isNetworkError(e)) throw e
+        enqueue({ op: 'remove', table, id })
+        return
+      }
     }
     const db = loadLocal()
     db[table] = (db[table] || []).filter(r => r.id !== id)
@@ -213,14 +235,20 @@ export const store = {
   },
 
   // Il rito serale: una riga per data (vincolo unique(user_id, giorno)).
-  async upsertGiorno(giornoKey, patch) {
+  async upsertGiorno(giornoKey, patch, opts = {}) {
     if (hasSupabase) {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data, error } = await supabase.from('giorno')
-        .upsert({ ...patch, giorno: giornoKey, user_id: user.id }, { onConflict: 'user_id,giorno' })
-        .select().single()
-      if (error) throw error
-      return data
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const { data, error } = await supabase.from('giorno')
+          .upsert({ ...patch, giorno: giornoKey, user_id: user.id }, { onConflict: 'user_id,giorno' })
+          .select().single()
+        if (error) throw error
+        return data
+      } catch (e) {
+        if (opts.noQueue || !isNetworkError(e)) throw e
+        enqueue({ op: 'upsertGiorno', table: 'giorno', id: giornoKey, payload: patch })
+        return { id: 'off-giorno-' + giornoKey, giorno: giornoKey, ...patch }
+      }
     }
     const db = loadLocal()
     db.giorno = db.giorno || []

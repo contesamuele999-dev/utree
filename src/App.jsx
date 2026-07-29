@@ -16,9 +16,9 @@ import { Privacy, Terms } from './pages/Legal.jsx'
 import { THEMES, applyTheme, loadTheme } from './lib/themes.js'
 import { exportBackup, importBackup } from './lib/backup.js'
 import { importGoogleKeep } from './lib/keepImport.js'
-import { RenderedBlock } from './lib/markdown.jsx'
 import { DEFAULT_STAGE } from './lib/stages.js'
 import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino } from './lib/localcache.js'
+import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount } from './lib/offline.js'
 import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
 
 const TABS = [
@@ -29,9 +29,17 @@ const TABS = [
   { id: 'progress', label: 'Progress' },
 ]
 
+// ---- ripresa di sessione: l'app riparte da dove l'hai lasciata ----
+const LAST_TAB = 'arbora-last-tab'
+const LAST_VISTA = 'arbora-last-vista'
+const lastTab = () => {
+  try { const t = localStorage.getItem(LAST_TAB); return TABS.some(x => x.id === t) ? t : 'today' }
+  catch { return 'today' }
+}
+
 export default function App() {
   const { user, loading, signOut, isDemo } = useAuth()
-  const [tab, setTab] = useState('today')
+  const [tab, setTab] = useState(lastTab)
   const [tabDir, setTabDir] = useState(0)      // -1 sx, +1 dx (per l'animazione swipe)
   const [swipeHint, setSwipeHint] = useState(null)   // { scope, dir, ready, label } feedback live durante lo swipe
   const swipeHintRef = useRef('')
@@ -57,7 +65,7 @@ export default function App() {
   const [confirm, setConfirm] = useState(null)
   const [theme, setTheme] = useState('foresta')
   const [themeOpen, setThemeOpen] = useState(false)
-  const [preview, setPreview] = useState(null)
+  const [editorEditing, setEditorEditing] = useState(false)   // una riga è in modifica nell'editor?
   const [templatePick, setTemplatePick] = useState(false)   // modale "usa template"
   const [busy, setBusy] = useState('')
   const defaultVita = useRef(null)
@@ -67,6 +75,10 @@ export default function App() {
   // `!user`. Dichiararne uno più in basso significa eseguirne un numero diverso
   // prima e dopo il login: React lo rifiuta (errore #310) e smonta tutto.
   const archivioWarned = useRef(false)
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
+  const [inCoda, setInCoda] = useState(() => outboxCount())
+  const editorApi = useRef({})          // ponte verso l'Editor (per il tasto indietro: esci dall'editing riga)
+  const sessioneRipresa = useRef(false) // la vista dell'ultima sessione è già stata riaperta?
   const contentRef = useRef(null)       // contenitore scrollabile delle schede (Pipe/Tree/…)
   const pipeScrollRef = useRef(0)       // scroll di Pipe salvato all'apertura di una vista, ripristinato al ritorno
   const baseBlocchi = useRef({})        // { vistaId: blocchi } = ultimo stato cloud noto, per il merge multi-dispositivo
@@ -77,13 +89,35 @@ export default function App() {
   const templateVis = useRef(null)      // riga della visione-contenitore template (o null se non esiste ancora)
 
   const reload = useCallback(async () => {
+    // Prima di leggere: se ci sono scritture rimaste in coda (fatte offline) le
+    // rigiochiamo, così la lettura che segue vede già il risultato.
+    try { await replayOutbox(store); setInCoda(outboxCount()) } catch { /* si ritenta */ }
+
     // resiliente: se una singola query fallisce non azzeriamo tutta l'app
-    const safe = (p) => p.catch(e => { console.warn('[reload] lettura fallita:', e?.message || e); return [] })
-    const [vt, vs, allViste, allLinks, allTask, allRegole] = await Promise.all([
+    let fallite = 0
+    const safe = (p) => p.catch(e => { fallite++; console.warn('[reload] lettura fallita:', e?.message || e); return [] })
+    let [vt, vs, allViste, allLinks, allTask, allRegole] = await Promise.all([
       safe(store.list('vite')), safe(store.list('visioni')), safe(store.list('viste')), safe(store.list('links')),
       safe(store.list('task')), safe(store.list('ricorrenza')),
     ])
-    const allGiorni = await safe(store.list('giorno'))
+    let allGiorni = await safe(store.list('giorno'))
+
+    // SENZA RETE: il cloud non risponde. Invece di mostrare un'app vuota,
+    // ripartiamo dall'ultimo stato conosciuto (snapshot locale). Le modifiche
+    // locali non ancora salite vengono comunque rifuse subito dopo.
+    if (fallite) {
+      const snap = loadSnapshot()
+      if (snap) {
+        vt = snap.vite || vt; vs = snap.visioni || vs
+        allViste = snap.viste || allViste; allLinks = snap.links || allLinks
+        allTask = snap.task || allTask; allRegole = snap.ricorrenza || allRegole
+        allGiorni = snap.giorno || allGiorni
+      }
+      setOffline(true)
+    } else {
+      setOffline(typeof navigator !== 'undefined' && navigator.onLine === false)
+      saveSnapshot({ vite: vt, visioni: vs, viste: allViste, links: allLinks, task: allTask, ricorrenza: allRegole, giorno: allGiorni })
+    }
     setTask(allTask)
     setRegole(allRegole)
     setGiorni(allGiorni)
@@ -304,6 +338,45 @@ export default function App() {
   useEffect(() => { setTheme(loadTheme()) }, [])
   useEffect(() => { if (user) reload() }, [user, reload])
 
+  // ---- ripresa di sessione ---------------------------------------------------
+  // Chiudere e riaprire la PWA non deve far ricominciare da capo: ricordiamo la
+  // scheda e l'eventuale vista aperta, e le ripristiniamo al primo caricamento.
+  useEffect(() => { try { localStorage.setItem(LAST_TAB, tab) } catch { /* quota */ } }, [tab])
+  useEffect(() => {
+    try {
+      if (vistaAperta) localStorage.setItem(LAST_VISTA, vistaAperta.id)
+      else if (sessioneRipresa.current) localStorage.removeItem(LAST_VISTA)
+    } catch { /* quota */ }
+  }, [vistaAperta])
+  useEffect(() => {
+    if (sessioneRipresa.current || !viste.length) return
+    sessioneRipresa.current = true
+    let id = null
+    try { id = localStorage.getItem(LAST_VISTA) } catch { /* ignore */ }
+    if (!id) return
+    const v = viste.find(x => x.id === id)
+    if (v) { setVistaStack([]); setVistaAperta(v) }
+  }, [viste])
+
+  // ---- rete: banner offline + ri-spedizione automatica al ritorno del segnale ----
+  useEffect(() => {
+    const giuLaRete = () => setOffline(true)
+    const suLaRete = async () => {
+      setOffline(false)
+      try { await replayOutbox(store) } finally { setInCoda(outboxCount()) }
+      flushDirtyToCloud(store)
+      if (user) reload()
+    }
+    window.addEventListener('offline', giuLaRete)
+    window.addEventListener('online', suLaRete)
+    const t = setInterval(() => setInCoda(outboxCount()), 4000)
+    return () => {
+      window.removeEventListener('offline', giuLaRete)
+      window.removeEventListener('online', suLaRete)
+      clearInterval(t)
+    }
+  }, [user, reload])
+
   // Sync cross-dispositivo: quando l'app torna in primo piano (cambio scheda, sblocco
   // schermo, ritorno da un'altra app) rileggiamo dal cloud, così le modifiche fatte su un
   // ALTRO dispositivo compaiono qui. Il reload fonde con la cache locale (mergeVisteWithCache)
@@ -342,11 +415,14 @@ export default function App() {
     prompt && (() => setPrompt(null)),
     fabOpen && (() => setFabOpen(false)),
     themeOpen && (() => setThemeOpen(false)),
-    preview && (() => setPreview(null)),
     ricorrentiOpen && (() => setRicorrentiOpen(null)),
     guide && (() => setGuide(null)),
     menu && (() => setMenu(false)),
     page && (() => setPage(null)),
+    // Dentro una vista: se stai MODIFICANDO una riga, il primo "indietro" chiude
+    // solo l'editing della riga (su mobile è il gesto naturale per "ho finito di
+    // scrivere"); serve un secondo indietro per uscire dalla vista.
+    (vistaAperta && editorEditing) && (() => editorApi.current.exitEditing?.()),
     vistaAperta && (() => closeVista()),
     // in Pipe con una ricerca attiva: il back cancella prima la ricerca (utile su tablet)
     (!vistaAperta && !page && tab === 'pipe' && pipeQuery) && (() => setPipeQuery('')),
@@ -447,6 +523,15 @@ export default function App() {
     }})
   }
 
+  // ＋ dalla scheda Today: una nuova attività per la giornata di oggi.
+  const addTaskOggi = () => {
+    setPrompt({ titolo: 'Nuova task di oggi', label: 'Cosa vuoi fare oggi?', valore: '', onOk: async (testo) => {
+      const oggi = todayKey()
+      const ordini = task.filter(t => t.giorno === oggi).map(t => t.ordine || 0)
+      await addTask({ text: testo, giorno: oggi, ordine: (ordini.length ? Math.max(...ordini) : 0) + 1 })
+    }})
+  }
+
   const addVista = ({ visioneId, parent = null, open = false } = {}) => {
     const vid = visioneId || parent?.visione_id || visioni[0]?.id
     if (!vid) { alert('Crea prima una visione.'); return }
@@ -468,13 +553,24 @@ export default function App() {
   // ---- Template ----
   // Clona i blocchi con id nuovi (i template si copiano fra viste): conserva testo,
   // rientro e immagini; scarta scadenze ed eventi Google Calendar (specifici dell'istanza).
+  // Un template è uno SCHELETRO, non una copia. Conserva il testo solo delle righe
+  // che definiscono la struttura — i titoli markdown (#, ##, …), i separatori (---)
+  // e le righe che hanno figli nidificati (l'inizio di una sezione) — mentre le
+  // righe di contenuto restano vuote, pronte da riempire. Rientri conservati,
+  // immagini/scadenze/eventi scartati (appartengono all'istanza, non al modello).
   const tuid = () => 'b-' + Math.random().toString(36).slice(2, 9)
-  const cloneBlocchi = (blocchi) => (blocchi || []).map(b => {
-    const n = { id: tuid(), text: b.text || '' }
-    if (b.indent) n.indent = b.indent
-    if (b.imgs) n.imgs = b.imgs
-    return n
-  })
+  const isTitolo = (t) => /^#{1,6}\s/.test(t || '') || (t || '').trim() === '---'
+  const cloneBlocchi = (blocchi) => {
+    const arr = blocchi || []
+    return arr.map((b, i) => {
+      const indent = b.indent || 0
+      const haFigli = (arr[i + 1]?.indent || 0) > indent   // inizio di una sezione a rientro
+      const n = { id: tuid(), text: (isTitolo(b.text) || haFigli) ? (b.text || '') : '' }
+      if (indent) n.indent = indent
+      if (b.check) n.check = true                          // il checkbox fa parte della struttura
+      return n
+    })
+  }
 
   // Salva la vista corrente come template (is_template: true), copiandone il contenuto.
   // Il template va nella visione di SISTEMA nascosta, così è indipendente dalle visioni
@@ -896,6 +992,7 @@ export default function App() {
         </div>
         <div className="content" onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
           <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
+            api={editorApi} onEditingChange={setEditorEditing}
             onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
         </div>
         <SwipeHint hint={swipeHint} />
@@ -921,6 +1018,14 @@ export default function App() {
           })}
         </div>
         <div className="spacer" />
+        {(offline || inCoda > 0) && (
+          <span className={'net-badge' + (offline ? ' off' : ' coda')}
+            title={offline
+              ? `Senza rete: stai lavorando sui dati salvati su questo dispositivo.${inCoda ? ` ${inCoda} modifiche in attesa di sincronizzazione.` : ''}`
+              : `${inCoda} modifiche in attesa di salire sul cloud.`}>
+            {offline ? '⚡ offline' : `↻ ${inCoda}`}
+          </span>
+        )}
         <button className="iconbtn" title="Usa un template per creare una nuova vista" onClick={() => setTemplatePick(true)}>🧩</button>
         <button className="iconbtn" title="Guida" onClick={() => setGuide(tab)}>?</button>
         <button className="iconbtn" onClick={() => setMenu(true)}>☰</button>
@@ -941,7 +1046,7 @@ export default function App() {
           {tab === 'pipe' && (
             <Pipeline visioni={visioniConArchivio} viste={visteConFasi}
               query={pipeQuery} onQueryChange={setPipeQuery}
-              onOpen={openFromList} onPreview={setPreview}
+              onOpen={openFromList}
               onAddVisione={addVisione} onAddVista={(visioneId) => addVista({ visioneId })}
               onRenameVisione={renameVisione} onRecolorVisione={recolorVisione}
               onDeleteVista={deleteVista} onDeleteVisione={deleteVisione}
@@ -969,18 +1074,21 @@ export default function App() {
         </div>
       </div>
 
-      {/* FAB: creazione rapida di visioni/viste */}
+      {/* FAB: crea la cosa giusta per la scheda in cui sei.
+          In Today il gesto atteso è "aggiungi un'attività di oggi", non "nuova vista":
+          il ＋ apre direttamente il prompt della task. Altrove resta il menu di creazione. */}
       <div className="fab-wrap">
-        {fabOpen && (
+        {fabOpen && tab !== 'today' && (
           <div className="fab-menu">
             <button onClick={() => { setFabOpen(false); addVisione() }}>🌱 Nuova visione</button>
             <button onClick={() => { setFabOpen(false); addVista({}) }}>📄 Nuova vista</button>
           </div>
         )}
-        <button className={'fab' + (fabOpen ? ' open' : '')} title="Crea"
-          onClick={() => setFabOpen(o => !o)}>＋</button>
+        <button className={'fab' + (fabOpen && tab !== 'today' ? ' open' : '')}
+          title={tab === 'today' ? 'Aggiungi una task di oggi' : 'Crea'}
+          onClick={() => { if (tab === 'today') addTaskOggi(); else setFabOpen(o => !o) }}>＋</button>
       </div>
-      {fabOpen && <div className="fab-scrim" onClick={() => setFabOpen(false)} />}
+      {fabOpen && tab !== 'today' && <div className="fab-scrim" onClick={() => setFabOpen(false)} />}
 
       <SwipeHint hint={swipeHint} />
 
@@ -1040,25 +1148,8 @@ export default function App() {
         </div>
       )}
 
-      {preview && (
-        <div className="modal-bg" onClick={() => setPreview(null)}>
-          <div className="modal preview-modal" onClick={e => e.stopPropagation()}>
-            <h3>{preview.titolo || 'Senza titolo'}</h3>
-            <div className="preview-body rendered">
-              {(preview.blocchi || []).map((b, bi) => (
-                <div key={b.id} className="preview-line" style={{ marginLeft: (b.indent || 0) * 18 }}>
-                  {b.text ? <RenderedBlock text={b.text} blocks={preview.blocchi} index={bi} /> : ''}
-                </div>
-              ))}
-              {!(preview.blocchi || []).length && <div style={{color:'var(--text-dim)'}}>Vista vuota.</div>}
-            </div>
-            <div className="row">
-              <button className="btn ghost" onClick={() => setPreview(null)}>Chiudi</button>
-              <button className="btn" onClick={() => { const p = preview; setPreview(null); openFromList(p) }}>Apri e modifica ✎</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* L'anteprima (pulsante 👁) è stata rimossa da Pipe: toccare una card apre
+          direttamente la vista, che è la cosa che si voleva fare comunque. */}
 
       {menu && (
         <div className="modal-bg" onClick={() => setMenu(false)}>

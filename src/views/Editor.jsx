@@ -73,7 +73,7 @@ const slashValue = (key) => {
 //  - INSERIMENTO: sostituiscono il token /parola con del testo (date, ore…);
 //  - AZIONE (`azione: true`): tolgono il token e fanno qualcosa alla riga.
 const SLASH_CMDS = [
-  { key: 'check', label: '/check', desc: 'aggiungi un checkbox alla riga', azione: true, prev: '☐' },
+  { key: 'check', label: '/check', desc: 'aggiungi o togli il checkbox', azione: true, prev: '☐' },
   { key: 'oggi',  label: '/oggi',  desc: 'porta la riga fra le task di oggi', azione: true, prev: '⚡' },
   { key: 'date',  label: '/date',  desc: 'giorno mese anno' },
   { key: 'sdate', label: '/sdate', desc: 'giorno e mese abbreviato' },
@@ -98,7 +98,7 @@ function parseIndented(text, base = 0) {
 // Editor della singola VISTA: blocchi markdown, drag&drop (riordino + nidificazione),
 // click=modifica · doppio click=copia · icona cestino=elimina (con recupero 7 giorni),
 // selezione multipla + copia/taglia/incolla di sezioni intere, undo/redo.
-export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday }) {
+export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday, api, onEditingChange }) {
   const [stagePick, setStagePick] = useState(false)
   const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [title, setTitle] = useState(vista.titolo || '')
@@ -126,7 +126,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [, setTick] = useState(0)                      // ri-valuta le scadenze nel tempo (senza interazione)
   const [slash, setSlash] = useState(null)             // { blockId, start, query, sel } menu scorciatoie "/"
   const [menuId, setMenuId] = useState(null)           // id della riga con il menu azioni (⋮) aperto su mobile
-  const [copyChoice, setCopyChoice] = useState(null)   // { text, link } popup: copia riga intera o solo il link
+  const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
   const editRef = useRef(null)                          // textarea della riga in modifica (per il caret dopo una scorciatoia)
   const pendingCaret = useRef(null)                     // posizione del caret da applicare all'apertura della modifica (dove hai premuto)
   const searchRef = useRef(null)                       // input ricerca vista (per la digitazione libera)
@@ -143,6 +143,13 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const rootRef = useRef(null)           // contenitore della vista: riceve il focus all'apertura
 
   useEffect(() => { if (editing) lastEdit.current = editing }, [editing])
+
+  // Ponte verso App: serve al tasto INDIETRO del telefono, che deve prima
+  // chiudere l'editing della riga e solo dopo uscire dalla vista.
+  useEffect(() => {
+    if (api) api.current = { exitEditing: () => setEditing(null) }
+    onEditingChange?.(!!editing)
+  }, [editing, api, onEditingChange])
 
   // uscendo dall'editing togliamo l'evidenziazione delle righe referenziate
   useEffect(() => { if (!editing) { clearTimeout(refFlashTimer.current); setRefFlash(s => s.size ? new Set() : s) } }, [editing])
@@ -324,7 +331,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     setTitle(vista.titolo || '')
     setTrash(cleanTrash)
     setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
-    setSlash(null); setMenuId(null)
+    setSlash(null); setMenuId(null); setRowSheet(null)
     prevChars.current = totalChars(vista.blocchi)
     undoStack.current = []; redoStack.current = []
     if ((vista.cestino || []).length !== cleanTrash.length) {
@@ -486,6 +493,10 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
           if (id) { e.preventDefault(); toggleCheck(id) }
         }
       }
+      // Ctrl+J = unisci le righe selezionate in una sola (J come "join")
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === 'J') && selectMode && selected.size > 1) {
+        e.preventDefault(); mergeSelected()
+      }
       // ---- scorciatoie in MODALITÀ SELEZIONE (solo fuori dai campi di testo) ----
       else if (selectMode && selected.size && e.key === 'Delete') {
         const tag = document.activeElement?.tagName
@@ -580,6 +591,13 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       next = [...blocks.slice(0, idx + 1), nb, ...blocks.slice(idx + 1)]
     }
     commit(next)
+    setEditing(nb.id)
+  }
+
+  // Nuova riga PRIMA di tutte le altre (il ＋ in cima alla vista).
+  const addBlockAtStart = () => {
+    const nb = { id: uid(), text: '', indent: 0 }
+    commit([nb, ...blocks])
     setEditing(nb.id)
   }
 
@@ -761,11 +779,11 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     navigator.clipboard?.writeText(text || '').catch(() => {})
     if (flashId) { setFlash(flashId); setTimeout(() => setFlash(null), 700) }
   }
-  const copyBlock = (b) => {
-    const link = linkInBlock(b.text)
-    // se la riga contiene un link chiedi cosa copiare (riga intera o solo il link)
-    if (link) { setCopyChoice({ id: b.id, text: b.text, link }); return }
+  // ---- TAGLIA una riga: il testo va negli appunti, la riga nel cestino ----
+  const cutBlock = (b) => {
     doCopyText(b.text, b.id)
+    deleteBlock(b.id)
+    avvisa('✂ Riga tagliata (Ctrl+Z per annullare)')
   }
 
   // ---- Stampa foglio: struttura ad albero, formato eco (nero su bianco, poco inchiostro) ----
@@ -889,7 +907,7 @@ ${rowsHtml}
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null; tr.id = null; tr.n = 0
       if (n === 1) { pendingCaret.current = caretFromPoint(cx, cy); setEditing(b.id) }   // singolo = modifica (caret dove hai premuto)
-      else copyBlock(b)                 // doppio = copia
+      else setRowSheet(b.id)            // doppio = menu rapido delle azioni sulla riga
     }, TAP_MS)
   }
 
@@ -931,7 +949,7 @@ ${rowsHtml}
     })
   }
   useEffect(() => {
-    const end = () => { selDrag.current = null }
+    const end = () => { selDrag.current = null; gripHold.current = false }
     // pointerenter funziona solo col mouse: per il touch (il dito "trascina" mantenendo
     // il pointer capture sul primo elemento) serviamo elementFromPoint sotto il dito.
     const move = (e) => {
@@ -1079,6 +1097,36 @@ ${rowsHtml}
     setToast(`Incollate ${inserted.length} righe`); setTimeout(() => setToast(''), 1300)
   }
 
+  // ---- UNISCI: le righe selezionate diventano una sola ----
+  // Il testo si fonde con uno spazio, nell'ordine in cui le righe compaiono nella
+  // vista (non nell'ordine in cui le hai toccate). La riga risultante prende posto,
+  // rientro e scadenza della PRIMA; eredita immagini e checkbox di tutte. Le righe
+  // assorbite finiscono nel cestino, così un ripensamento costa un clic.
+  const mergeSelected = () => {
+    const sel = selectedInOrder()
+    if (sel.length < 2) { avvisa('Seleziona almeno due righe da unire'); return }
+    const [prima, ...altre] = sel
+    const testo = sel.map(b => (b.text || '').trim()).filter(Boolean).join(' ')
+    const imgs = sel.flatMap(b => b.imgs || [])
+    const fusa = {
+      ...prima,
+      text: testo,
+      ...(imgs.length ? { imgs } : {}),
+      ...(sel.some(b => b.check) ? { check: true } : {}),
+      ...(prima.due ? {} : { due: sel.find(b => b.due)?.due }),
+    }
+    if (!fusa.due) delete fusa.due
+    const assorbite = new Set(altre.map(b => b.id))
+    const nextBlocks = blocks
+      .filter(b => !assorbite.has(b.id))
+      .map(b => b.id === prima.id ? fusa : b)
+    const nextTrash = [...altre.map(b => ({ ...b, deletedAt: Date.now() })), ...trash].slice(0, 200)
+    pushUndo(blocks)
+    setBlocks(nextBlocks); setTrash(nextTrash); setSelected(new Set([prima.id]))
+    persist(nextBlocks, title, nextTrash)
+    avvisa(`⇲ ${sel.length} righe unite in una`)
+  }
+
   // rientro massimo consentito per un blocco: al più (rientro del precedente + 1)
   const maxIndentFor = (arr, index) => {
     if (index <= 0) return 0
@@ -1152,7 +1200,7 @@ ${rowsHtml}
     applyDrag(id, e.clientX)
     setDragId(null); setDropId(null); setGhost(null)
   }
-  const endDrag = () => { setDragId(null); setDropId(null); setGhost(null) }
+  const endDrag = () => { gripHold.current = false; setDragId(null); setDropId(null); setGhost(null) }
 
   // ---- TOUCH: trascina la riga premendo in mezzo ----
   // Tocco+attesa (long-press) al centro della riga → modalità trascinamento:
@@ -1161,11 +1209,37 @@ ${rowsHtml}
   // (Su desktop resta il drag HTML5 con la maniglia ⠿.)
   const rowDrag = useRef(null)
   const rowJustHandled = useRef(false)   // evita che il click apra la modifica dopo drag/swipe
+  const gripHold = useRef(false)         // si sta trascinando la riga dalla maniglia mentre è in modifica
   const LONGPRESS_MS = 260
   const SWIPE_MIN = 42
 
+  // ---- SCROLL "LANCIATO" (inerzia) -------------------------------------------
+  // Le righe hanno touch-action:none, quindi lo scorrimento della lista lo muoviamo
+  // noi: senza inerzia si fermava di netto appena alzavi il dito, e per scendere in
+  // una vista lunga servivano dieci gesti. Qui, al rilascio, la lista prosegue con la
+  // velocità che aveva e rallenta gradualmente — come uno scroll nativo.
+  const flingRaf = useRef(0)
+  const stopFling = () => { if (flingRaf.current) { cancelAnimationFrame(flingRaf.current); flingRaf.current = 0 } }
+  const FLING_MIN = 0.25      // px/ms sotto cui il gesto è un trascinamento, non un lancio
+  const FLING_DECAY = 0.94    // quanto la velocità si smorza a ogni frame (~16ms)
+  const flingScroll = (scroller, vel) => {
+    if (!scroller || Math.abs(vel) < FLING_MIN) return
+    let v = Math.max(-6, Math.min(6, vel))   // tetto: un lancio violento non deve teletrasportare
+    const step = () => {
+      v *= FLING_DECAY
+      if (Math.abs(v) < 0.02) { flingRaf.current = 0; return }
+      const prima = scroller.scrollTop
+      scroller.scrollTop -= v * 16
+      if (scroller.scrollTop === prima) { flingRaf.current = 0; return }   // arrivati a fine lista
+      flingRaf.current = requestAnimationFrame(step)
+    }
+    flingRaf.current = requestAnimationFrame(step)
+  }
+  useEffect(() => stopFling, [])
+
   const onRowDown = (e, b) => {
     rowJustHandled.current = false
+    stopFling()   // toccare la lista ferma l'inerzia (come su qualsiasi lista nativa)
     if (editing === b.id) return
     // In SELEZIONE: tenere premuto su una riga seleziona quella riga + tutti i rami
     // nidificati (la sua sezione). Funziona sia con mouse sia con touch.
@@ -1198,6 +1272,29 @@ ${rowsHtml}
     }, LONGPRESS_MS)
     rowDrag.current = d
   }
+  // Maniglia ⠿ che compare SOLO sulla riga in modifica. Mentre scrivi la riga non è
+  // trascinabile (il dito serve a posizionare il cursore nel testo): senza maniglia
+  // bisognava uscire dall'editing per spostarla. Qui il trascinamento parte subito,
+  // senza attesa: la maniglia è già una dichiarazione d'intenti.
+  const onGripDown = (e, b) => {
+    // toccare la maniglia toglie il fuoco alla textarea: senza questo flag l'onBlur
+    // chiuderebbe l'editing e la maniglia sparirebbe a metà trascinamento.
+    gripHold.current = true
+    if (e.pointerType === 'mouse') return   // su desktop la maniglia usa il drag HTML5
+    e.preventDefault(); e.stopPropagation()
+    const d = {
+      id: b.id, el: e.currentTarget, pointerId: e.pointerId, sx: e.clientX, sy: e.clientY,
+      lastX: e.clientX, lastY: e.clientY, startIndent: b.indent || 0, text: b.text,
+      active: true, over: null, scrolling: false,
+      scroller: rootRef.current?.closest('.content') || document.scrollingElement,
+    }
+    try { e.currentTarget.setPointerCapture?.(d.pointerId) } catch { /* ignore */ }
+    rowDrag.current = d
+    setDragId(b.id)
+    setGhost({ x: e.clientX, y: e.clientY, text: b.text })
+    try { navigator.vibrate?.(12) } catch { /* ignore */ }
+  }
+
   const onRowMove = (e) => {
     const d = rowDrag.current
     if (!d) return
@@ -1212,16 +1309,29 @@ ${rowsHtml}
       // prima del long-press: se il dito si muove troppo è uno scroll/swipe → annulla il timer.
       // Poiché la riga ha touch-action:none (per rendere affidabile il long-press-drag su
       // tablet), il browser non scorre più la lista da solo: lo facciamo noi a mano finché
-      // il gesto resta un semplice scroll verticale.
+      // il gesto resta un semplice scroll verticale — annotando la velocità, così al
+      // rilascio possiamo proseguire per inerzia (vedi flingScroll).
       if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 12) {
         clearTimeout(d.timer); d.timedOut = true
         const dx = Math.abs(e.clientX - d.sx), dy = Math.abs(e.clientY - d.sy)
         if (dy > dx && !d.scrolling) {
           d.scrolling = true   // gesto verticale → è uno scroll della lista
+          d.vel = 0; d.lastT = performance.now()   // azzera la misura: si parte da fermi
+          stopFling()          // un nuovo tocco ferma l'inerzia in corso
           try { d.el.setPointerCapture?.(d.pointerId) } catch { /* ignore */ }
         }
       }
-      if (d.scrolling && d.scroller) { e.preventDefault(); d.scroller.scrollTop -= (e.clientY - prevY) }
+      if (d.scrolling && d.scroller) {
+        e.preventDefault()
+        const now = performance.now()
+        const dy = e.clientY - prevY
+        d.scroller.scrollTop -= dy
+        // velocità istantanea in px/ms, lisciata: le ultime frazioni di gesto pesano
+        // di più, così un "lancio" finale conta anche dopo un trascinamento lento.
+        const dt = Math.max(1, now - (d.lastT || now))
+        d.vel = (d.vel || 0) * 0.6 + (dy / dt) * 0.4
+        d.lastT = now
+      }
       return
     }
     e.preventDefault()
@@ -1244,7 +1354,13 @@ ${rowsHtml}
     if (!d) return
     clearTimeout(d.timer); rowDrag.current = null
     if (d.sel) return   // long-press in selezione: gestito dal timer; il click fa il toggle normale
-    if (d.scrolling) { rowJustHandled.current = true; return }   // era uno scroll della lista, non un tap
+    if (d.scrolling) {
+      rowJustHandled.current = true              // era uno scroll della lista, non un tap
+      // se il dito si era fermato prima di staccarsi non è un lancio: la lista resta lì
+      const fermo = performance.now() - (d.lastT || 0) > 90
+      flingScroll(d.scroller, fermo ? 0 : (d.vel || 0))
+      return
+    }
     const dx = (e.clientX ?? d.lastX) - d.sx
     const dy = (e.clientY ?? d.lastY) - d.sy
     if (!d.active) {
@@ -1391,7 +1507,9 @@ ${rowsHtml}
     if (cmd.azione) {
       const pulito = (before + after).replace(/\s+$/, '')
       setSlash(null)
-      if (cmd.key === 'check') setCheck(b.id, true, pulito)
+      // /check è un INTERRUTTORE: se la riga ha già il checkbox, riscrivere
+      // "/check" lo toglie (è il modo naturale per liberarsene).
+      if (cmd.key === 'check') setCheck(b.id, !b.check, pulito)
       else if (cmd.key === 'oggi') mandaOggi(b, pulito)
       const caretAz = before.length
       requestAnimationFrame(() => {
@@ -1507,6 +1625,9 @@ ${rowsHtml}
         <input className="editor-title" value={title} placeholder="Titolo della vista…"
           size={Math.min(Math.max((title.length || 18) + 1, 4), 38)}
           onChange={e => titleChange(e.target.value)} />
+        {/* spinge fase + stato salvataggio contro il bordo destro: il titolo respira
+            a sinistra, gli indicatori stanno sempre nello stesso angolo */}
+        <div className="spacer" />
         {onSetStage && (
           <div className="stage-pick-wrap">
             <button type="button" className="stage-pill" style={{ '--stage': stageOf(vista).color }}
@@ -1589,6 +1710,8 @@ ${rowsHtml}
               <button className="pillbtn" title="Seleziona tutta la sezione (escluso il ramo padre)" onClick={selectSection}>⤵ Sezione</button>
               <button className="pillbtn" title="Copia la sezione (mantiene i livelli)" onClick={copySection}>⧉ Copia</button>
               <button className="pillbtn" title="Taglia la sezione (va nel cestino)" onClick={cutSection}>✂ Taglia</button>
+              <button className="pillbtn" title="Unisci le righe selezionate in una sola riga"
+                onClick={mergeSelected} disabled={selected.size < 2}>⇲ Unisci</button>
               <button className="pillbtn" title="Incolla dopo la riga selezionata" onClick={pasteSection} disabled={!clipCount}>📌 Incolla{clipCount ? ` (${clipCount})` : ''}</button>
               <button className="pillbtn" title="Imposta la scadenza per le righe selezionate" onClick={() => setBulkDue(true)}>📅 Scadenza</button>
               <button className="pillbtn danger" title="Chiudi selezione" onClick={exitSelect}>✕</button>
@@ -1607,7 +1730,7 @@ ${rowsHtml}
         <div className="link-hint">
           <ul className="hint-list">
             <li className="grp"><b className="hint-cat">Righe</b> <span><b>Click</b> = modifica la riga</span></li>
-            <li><b className="hint-cat" /> <span><b>Doppio click</b> = copia la riga</span></li>
+            <li><b className="hint-cat" /> <span><b>Doppio click</b> = menu rapido (copia, taglia, today, scadenza…)</span></li>
             <li><b className="hint-cat" /> <span><b>Triplo click</b> = selezione</span></li>
             <li><b className="hint-cat" /> <span><b>Rotellina</b> sulla riga = nuova riga sotto</span></li>
             <li><b className="hint-cat" /> <span><b>Invio</b> = nuova riga · frecce <code>↑</code>/<code>↓</code> = riga sopra/sotto</span></li>
@@ -1634,6 +1757,7 @@ ${rowsHtml}
             <li className="grp"><b className="hint-cat">Selezione</b> <span><code>Ctrl+S</code> = entra/esci · <code>Ctrl+A</code> = tutte</span></li>
             <li><b className="hint-cat" /> <span><code>Shift+click</code> o tieni premuto = sezione</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+C</code>/<code>Ctrl+X</code> = copia/taglia · <code>Tab</code> = rientro</span></li>
+            <li><b className="hint-cat" /> <span><code>Ctrl+J</code> o <b>⇲ Unisci</b> = fondi le righe in una sola</span></li>
             <li><b className="hint-cat" /> <span><code>Canc</code> = elimina · <code>Backspace</code> = svuota · click fuori = esci</span></li>
 
             <li className="grp"><b className="hint-cat">Foglio</b> <span><b>⧉ Copia foglio</b> · <b>🖨 Stampa</b> · <b>🗑 Cestino</b></span></li>
@@ -1675,6 +1799,16 @@ ${rowsHtml}
       </div>
 
       <div className="blocks-list" data-noswipe="">
+      {/* ＋ SOPRA la prima riga: l'unico punto d'inserimento che i ＋ fra le righe
+          non possono coprire. Senza, per scrivere in cima bisognava creare una riga
+          e poi trascinarla su. */}
+      {!selectMode && !focusMode && (
+        <button className="row-add-between at-start" data-noswipe="" tabIndex={-1}
+          title="Inserisci una riga in cima" aria-label="Inserisci una riga in cima"
+          onClick={() => addBlockAtStart()}>
+          <span className="row-add-between-ico">＋</span>
+        </button>
+      )}
       {blocks.map((b, bi) => {
         const indent = b.indent || 0
         const isSel = selected.has(b.id)
@@ -1709,6 +1843,12 @@ ${rowsHtml}
               <span className="today-box" />
             </label>
           )}
+          {editing === b.id && (
+            <span className="edit-grip" data-noswipe="" title="Trascina per spostare la riga"
+              draggable onDragStart={e => onDragStart(e, b.id)} onDragEnd={endDrag}
+              onPointerDown={e => onGripDown(e, b)} onPointerMove={onRowMove}
+              onPointerUp={onRowUp} onPointerCancel={onRowCancel}>⠿</span>
+          )}
           {editing === b.id ? (
             <div className="row-edit" data-noswipe=""
               onPointerDown={e => onEditSwipeDown(e, b)} onPointerMove={onEditSwipeMove}
@@ -1721,7 +1861,12 @@ ${rowsHtml}
               onChange={e => { autosize(e.target); setText(b.id, e.target.value); detectSlash(b.id, e.target) }}
               onKeyUp={e => detectSlash(b.id, e.currentTarget)}
               onClick={e => detectSlash(b.id, e.currentTarget)}
-              onBlur={() => { setEditing(null); setSlash(null) }}
+              onBlur={() => {
+                // maniglia ⠿ premuta: non è "ho finito di scrivere", è "sto spostando
+                // la riga". Restituiamo il fuoco alla casella invece di chiudere.
+                if (gripHold.current) { requestAnimationFrame(() => editRef.current?.focus({ preventScroll: true })); return }
+                setEditing(null); setSlash(null)
+              }}
               onPaste={e => {
                 const text = e.clipboardData?.getData('text') || ''
                 if (!text) return
@@ -1857,7 +2002,8 @@ ${rowsHtml}
       })}
       </div>
 
-      <button className="add-btn" style={{marginTop:12}} onClick={() => addBlock(null)}>＋ Aggiungi blocco in fondo</button>
+      {/* Niente "aggiungi blocco in fondo": i ＋ fra le righe (e quello in cima)
+          coprono ogni posizione, incluso il fondo. Un pulsante in meno da cercare. */}
 
       {/* input file nascosto per gli allegati immagine */}
       <input ref={imgInputRef} type="file" accept="image/*" style={{ display: 'none' }}
@@ -1897,19 +2043,54 @@ ${rowsHtml}
         </div>
       )}
 
-      {/* doppio click su una riga con un link: scegli cosa copiare */}
-      {copyChoice && (
-        <div className="due-scrim due-scrim-center" onClick={() => setCopyChoice(null)}>
-          <div className="due-pop due-pop-center" onClick={e => e.stopPropagation()}>
-            <label className="due-pop-lbl">Cosa vuoi copiare?</label>
-            <div className="copy-choice-link" title={copyChoice.link}>🔗 {copyChoice.link}</div>
-            <div className="due-pop-row" style={{ flexDirection: 'column', gap: 8 }}>
-              <button className="pillbtn" onClick={() => { doCopyText(copyChoice.text, copyChoice.id); setCopyChoice(null); setToast('Riga copiata'); setTimeout(() => setToast(''), 1200) }}>⧉ Copia riga intera</button>
-              <button className="pillbtn" onClick={() => { doCopyText(copyChoice.link); setCopyChoice(null); setToast('Link copiato'); setTimeout(() => setToast(''), 1200) }}>🔗 Copia solo il link</button>
+      {/* DOPPIO TOCCO su una riga → menu rapido delle azioni.
+          Griglia di bersagli larghi, una parola sola per voce, nessuna conferma:
+          si apre, si tocca, si chiude. Le voci che non hanno senso per quella riga
+          (il link, se non ce n'è) semplicemente non compaiono. */}
+      {rowSheet && (() => {
+        const b = blocks.find(x => x.id === rowSheet)
+        if (!b) return null
+        const link = linkInBlock(b.text)
+        const chiudi = () => setRowSheet(null)
+        const fai = (fn) => { chiudi(); fn() }
+        return (
+          <div className="row-sheet-scrim" onClick={chiudi}>
+            <div className="row-sheet" onClick={e => e.stopPropagation()}>
+              <div className="row-sheet-title" title={b.text}>{shortText(b.text)}</div>
+              <div className="row-sheet-grid">
+                <button className="row-sheet-btn" onClick={() => fai(() => { doCopyText(b.text, b.id); avvisa('⧉ Copiata') })}>
+                  <span className="rs-ico">⧉</span><span className="rs-lbl">Copia</span>
+                </button>
+                {link && (
+                  <button className="row-sheet-btn" onClick={() => fai(() => { doCopyText(link); avvisa('🔗 Link copiato') })}>
+                    <span className="rs-ico">🔗</span><span className="rs-lbl">Link</span>
+                  </button>
+                )}
+                <button className="row-sheet-btn" onClick={() => fai(() => cutBlock(b))}>
+                  <span className="rs-ico">✂</span><span className="rs-lbl">Taglia</span>
+                </button>
+                {onSendToToday && (
+                  <button className="row-sheet-btn" onClick={() => fai(() => mandaOggi(b))}>
+                    <span className="rs-ico">⚡</span><span className="rs-lbl">Today</span>
+                  </button>
+                )}
+                <button className="row-sheet-btn" onClick={() => fai(() => setDuePick(b.id))}>
+                  <span className="rs-ico">📅</span><span className="rs-lbl">Scadenza</span>
+                </button>
+                <button className="row-sheet-btn" onClick={() => fai(() => openImagePicker(b.id))}>
+                  <span className="rs-ico">🖼</span><span className="rs-lbl">Foto</span>
+                </button>
+                <button className="row-sheet-btn" onClick={() => fai(() => toggleCheck(b.id))}>
+                  <span className="rs-ico">☑</span><span className="rs-lbl">{b.check ? 'No check' : 'Check'}</span>
+                </button>
+                <button className="row-sheet-btn danger" onClick={() => fai(() => deleteBlock(b.id))}>
+                  <span className="rs-ico">🗑</span><span className="rs-lbl">Elimina</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* immagine a schermo intero (lightbox) */}
       {lightbox && (() => {
