@@ -43,6 +43,17 @@ export function hasSnapshot() {
 export const offlineId = () => 'off-' + Math.random().toString(36).slice(2, 10)
 export const isOfflineId = (id) => typeof id === 'string' && id.startsWith('off-')
 
+// Via di fuga: butta via TUTTE le copie locali (snapshot, coda, cache delle viste)
+// e riparte da ciò che c'è nel cloud. Serve quando una copia locale sbagliata sta
+// coprendo i dati veri. Non tocca nulla su Supabase: è sempre un'operazione sicura,
+// l'unica cosa che si perde sono le modifiche non ancora salite (se ce ne sono, il
+// badge in alto le segnala prima).
+export function purgeLocalData() {
+  for (const k of [SNAP_KEY, OUT_KEY, 'arbora-vista-cache']) {
+    try { localStorage.removeItem(k) } catch { /* ignore */ }
+  }
+}
+
 export function outbox() { return readJSON(OUT_KEY, []) }
 export function outboxCount() { return outbox().length }
 
@@ -55,8 +66,12 @@ export function enqueue(entry) {
 // Un errore "di rete" (offline, DNS, server irraggiungibile) va messo in coda;
 // un errore vero del database (vincolo violato, colonna assente) NO: rigiocarlo
 // fallirebbe per sempre e bloccherebbe la coda.
+// NB: non basiamoci su `navigator.onLine`. È notoriamente bugiardo (VPN, adattatori
+// virtuali, reti captive lo danno false pur essendo tutto a posto) e, dandogli retta,
+// un errore VERO del database verrebbe scambiato per un problema di rete e messo in
+// coda — incluse le eliminazioni. Quando si è davvero offline il fetch fallisce con
+// un messaggio riconoscibile, che è quello che controlliamo qui sotto.
 export function isNetworkError(e) {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
   const m = ((e && (e.message || e.error_description || e.details)) || '').toString().toLowerCase()
   return m.includes('failed to fetch') || m.includes('networkerror') ||
     m.includes('network request failed') || m.includes('load failed') ||

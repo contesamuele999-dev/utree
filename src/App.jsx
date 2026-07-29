@@ -18,7 +18,7 @@ import { exportBackup, importBackup } from './lib/backup.js'
 import { importGoogleKeep } from './lib/keepImport.js'
 import { DEFAULT_STAGE } from './lib/stages.js'
 import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino } from './lib/localcache.js'
-import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount } from './lib/offline.js'
+import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount, purgeLocalData } from './lib/offline.js'
 import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
 
 const TABS = [
@@ -103,20 +103,34 @@ export default function App() {
     let allGiorni = await safe(store.list('giorno'))
 
     // SENZA RETE: il cloud non risponde. Invece di mostrare un'app vuota,
-    // ripartiamo dall'ultimo stato conosciuto (snapshot locale). Le modifiche
-    // locali non ancora salite vengono comunque rifuse subito dopo.
-    if (fallite) {
+    // ripartiamo dall'ultimo stato conosciuto (snapshot locale).
+    //
+    // Due regole di prudenza, imparate a caro prezzo: lo snapshot è una RETE DI
+    // SICUREZZA, mai una fonte di verità.
+    //  1) si usa SOLO tabella per tabella, e SOLO se quella lettura è fallita e non
+    //     ha restituito nulla: una lettura riuscita non viene mai scavalcata da una
+    //     copia vecchia;
+    //  2) non si salva MAI uno snapshot vuoto. Un momento sfortunato (sessione non
+    //     ancora pronta, permessi non ancora validi) restituisce liste vuote senza
+    //     errore: memorizzarlo significherebbe sovrascrivere la copia buona col nulla.
+    const usaSnapshot = (fresche) => {
       const snap = loadSnapshot()
-      if (snap) {
-        vt = snap.vite || vt; vs = snap.visioni || vs
-        allViste = snap.viste || allViste; allLinks = snap.links || allLinks
-        allTask = snap.task || allTask; allRegole = snap.ricorrenza || allRegole
-        allGiorni = snap.giorno || allGiorni
-      }
+      if (!snap) return fresche
+      return fresche.map(([chiave, valore]) =>
+        (!valore?.length && snap[chiave]?.length) ? snap[chiave] : valore)
+    }
+    if (fallite) {
+      ;[vt, vs, allViste, allLinks, allTask, allRegole, allGiorni] = usaSnapshot([
+        ['vite', vt], ['visioni', vs], ['viste', allViste], ['links', allLinks],
+        ['task', allTask], ['ricorrenza', allRegole], ['giorno', allGiorni],
+      ])
       setOffline(true)
     } else {
       setOffline(typeof navigator !== 'undefined' && navigator.onLine === false)
-      saveSnapshot({ vite: vt, visioni: vs, viste: allViste, links: allLinks, task: allTask, ricorrenza: allRegole, giorno: allGiorni })
+      // niente snapshot se non c'è proprio niente da salvare
+      if (vs.length || allViste.length || allTask.length) {
+        saveSnapshot({ vite: vt, visioni: vs, viste: allViste, links: allLinks, task: allTask, ricorrenza: allRegole, giorno: allGiorni })
+      }
     }
     setTask(allTask)
     setRegole(allRegole)
@@ -1160,6 +1174,16 @@ export default function App() {
               <button onClick={() => { setMenu(false); setPage('stats') }}>📊 Statistiche</button>
               <button onClick={() => { setMenu(false); setGuide(tab) }}>❓ Guida comandi</button>
               <button onClick={() => { setMenu(false); setThemeOpen(true) }}>🎨 Tema dell'app</button>
+              <button onClick={() => {
+                setMenu(false)
+                setConfirm({
+                  titolo: 'Ripulire le copie locali?',
+                  messaggio: 'Cancella snapshot, coda di sincronizzazione e cache delle viste salvati su QUESTO dispositivo, poi ricarica tutto dal cloud. Non tocca nulla su Supabase.'
+                    + (inCoda ? `\n\nAttenzione: ci sono ${inCoda} modifiche non ancora salite. Andrebbero perse.` : ''),
+                  okLabel: 'Ripulisci e ricarica',
+                  onOk: async () => { purgeLocalData(); await reload() },
+                })
+              }}>🧹 Ripulisci le copie locali</button>
               <button onClick={doExport} disabled={busy==='export'}>⬇ Esporta backup (JSON)</button>
               <label className="menu-import">
                 ⬆ Importa backup (JSON)
