@@ -209,10 +209,15 @@ export function taskDelGiorno(task, key) {
   return (task || []).filter(t => t && t.giorno === key)
 }
 
+// Una task "a metà" (parziale) non è chiusa — resta aperta e fa rollover —
+// ma nella barra vale mezzo passo: il progresso deve dire la verità anche
+// quando la giornata è fatta di cose iniziate e non finite.
 export function completamento(task) {
   const tot = (task || []).length
   const done = (task || []).filter(t => t && t.done).length
-  return { done, tot, pct: tot ? Math.round((done / tot) * 100) : 0 }
+  const mezze = (task || []).filter(t => t && !t.done && t.parziale).length
+  const peso = done + mezze * 0.5
+  return { done, mezze, tot, pct: tot ? Math.round((peso / tot) * 100) : 0 }
 }
 
 // Raggruppa le task per giorno: { 'YYYY-MM-DD': { tot, done } }

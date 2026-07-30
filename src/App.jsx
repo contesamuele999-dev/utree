@@ -215,13 +215,19 @@ export default function App() {
     }
   }
 
+  // Tre stati, non due: da fare → a metà → fatta → da fare.
+  // "A metà" non è chiusa (fa rollover come una task aperta), ma la giornata
+  // se ne accorge: nella barra vale mezzo passo.
   const toggleTask = async (t) => {
-    const done = !t.done
-    const patch = { done, done_at: done ? new Date().toISOString() : null }
+    const patch = t.done
+      ? { done: false, parziale: false, done_at: null }              // fatta  → da fare
+      : t.parziale
+        ? { done: true, parziale: false, done_at: new Date().toISOString() }  // a metà → fatta
+        : { done: false, parziale: true, done_at: null }             // da fare → a metà
     setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
     try { await store.update('task', t.id, patch) }
     catch (e) {
-      setTask(ts => ts.map(x => x.id === t.id ? { ...x, done: t.done, done_at: t.done_at } : x))
+      setTask(ts => ts.map(x => x.id === t.id ? { ...x, done: t.done, parziale: t.parziale, done_at: t.done_at } : x))
       avvisaMigrazione(e)
     }
   }

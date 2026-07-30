@@ -172,9 +172,30 @@ test('completamento e perGiorno', () => {
     { id: '2', giorno: '2026-07-25', done: false },
     { id: '3', giorno: '2026-07-25', done: true },
   ]
-  assert.deepEqual(completamento(task), { done: 2, tot: 3, pct: 67 })
+  assert.deepEqual(completamento(task), { done: 2, mezze: 0, tot: 3, pct: 67 })
   assert.deepEqual(perGiorno(task)['2026-07-25'], { tot: 3, done: 2 })
-  assert.deepEqual(completamento([]), { done: 0, tot: 0, pct: 0 })
+  assert.deepEqual(completamento([]), { done: 0, mezze: 0, tot: 0, pct: 0 })
+})
+
+// una task "a metà" resta aperta ma vale mezzo passo nella barra
+test('completamento: le task a metà valgono mezzo passo', () => {
+  const task = [
+    { id: '1', giorno: '2026-07-25', done: true },
+    { id: '2', giorno: '2026-07-25', done: false, parziale: true },
+    { id: '3', giorno: '2026-07-25', done: false },
+    { id: '4', giorno: '2026-07-25', done: false },
+  ]
+  assert.deepEqual(completamento(task), { done: 1, mezze: 1, tot: 4, pct: 38 })
+})
+
+// e continua a fare rollover: non è chiusa
+test('rollover: una task a metà passa al giorno dopo', () => {
+  const p = pianificaRollover({
+    task: [{ id: '1', giorno: '2026-07-24', done: false, parziale: true }],
+    oggi: '2026-07-25',
+  })
+  assert.equal(p.length, 1)
+  assert.equal(p[0].patch.giorno, '2026-07-25')
 })
 
 const T = (giorno, done) => ({ id: giorno + (done ? 'd' : 'o'), giorno, done })

@@ -713,8 +713,10 @@ a { color: var(--accent); text-decoration: none; }
 
 /* ＋ in cima alla vista: crea una riga PRIMA di tutte le altre. Non è sovrapposto
    (non c'è una riga sopra da coprire): occupa la sua striscia di spazio. */
+/* width:100% — senza, il <button> (shrink-to-fit) restava incollato a sinistra
+   invece di stare al centro come i ＋ fra le righe. */
 .row-add-between.at-start {
-  position: static; height: 24px; margin: 0 0 2px; opacity: 1;
+  position: static; width: 100%; height: 24px; margin: 0 0 2px; opacity: 1;
   pointer-events: auto;
 }
 .row-add-between.at-start .row-add-between-ico { opacity: .55; }
@@ -864,7 +866,9 @@ a { color: var(--accent); text-decoration: none; }
     padding: 7px; box-shadow: 0 8px 22px rgba(0,0,0,.45);
   }
   .row-menu-scrim { display: block; position: fixed; inset: 0; z-index: 44; }
-  .block .row-due, .block .row-img, .block .row-del {
+  /* nel menu ⋮ le icone sono più grandi (bersaglio di tocco), ma sempre tutte uguali */
+  .block .row-actions .iconbtn,
+  .block .row-actions .row-due, .block .row-actions .row-del {
     width: 34px; height: 34px; font-size: 15px; opacity: 1;
   }
 
@@ -935,6 +939,20 @@ a { color: var(--accent); text-decoration: none; }
 .block .row-clear { width: 28px; height: 28px; font-size: 14px; flex: 0 0 auto; opacity: .55; transition: opacity .12s, border-color .12s; }
 .block:hover .row-clear { opacity: 1; }
 .block .row-clear:hover { opacity: 1; border-color: var(--accent); }
+
+/* Tutte le icone di riga hanno la STESSA misura (28px su desktop e tablet):
+   📅 ✅ ⚡ 📷 ⌫ 🗑. Prima ✅ e ⚡ ereditavano i 38px di .iconbtn e sporgevano
+   rispetto alle altre. */
+.block .row-actions .iconbtn,
+.block .row-due, .block .row-check-btn, .block .row-oggi,
+.block .row-img, .block .row-clear, .block .row-del {
+  width: 28px; height: 28px; font-size: 14px; flex: 0 0 auto;
+}
+.block .row-check-btn, .block .row-oggi {
+  opacity: .55; transition: opacity .12s, border-color .12s;
+}
+.block:hover .row-check-btn, .block:hover .row-oggi,
+.block .row-check-btn.on, .block .row-oggi.on { opacity: 1; }
 
 /* ---- azioni riga: su desktop restano in linea; su mobile dietro a un menu ⋮ ---- */
 /* display:contents = i pulsanti si comportano come figli diretti di .block (layout invariato su desktop) */
@@ -1173,25 +1191,41 @@ a { color: var(--accent); text-decoration: none; }
 .today-item.done { opacity: .5; }
 .today-item.done .today-text { text-decoration: line-through; color: var(--text-dim); }
 
-.today-check { flex: 0 0 auto; display: inline-flex; cursor: pointer; }
+/* la spunta di Today ha TRE stati: vuota (da fare), mezza (◐), piena (✓).
+   È un <button> e non una checkbox proprio perché gli stati sono tre. */
+.today-check {
+  flex: 0 0 auto; display: inline-flex; cursor: pointer;
+  background: none; border: none; padding: 0; margin: 0;
+}
 .today-check input { position: absolute; opacity: 0; width: 0; height: 0; }
 .today-box {
   width: 20px; height: 20px; border-radius: 6px;
   border: 1.5px solid var(--border); background: var(--bg-2);
-  display: inline-block; position: relative;
+  display: inline-block; position: relative; overflow: hidden;
   transition: border-color .15s ease, background .15s ease;
 }
 .today-check:hover .today-box { border-color: var(--green); }
-.today-check input:focus-visible + .today-box { outline: 2px solid var(--green-bright); outline-offset: 2px; }
+.today-check:focus-visible .today-box { outline: 2px solid var(--green-bright); outline-offset: 2px; }
+/* a metà: mezza casella riempita, nessun ✓ — la task resta aperta */
+.today-check.mezza .today-box { border-color: var(--green-deep); }
+.today-check.mezza .today-box::after {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 50%;
+  background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
+}
+.today-check.done .today-box,
 .today-check input:checked + .today-box {
   background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
   border-color: var(--green-deep);
 }
+.today-check.done .today-box::after,
 .today-check input:checked + .today-box::after {
-  content: '✓'; position: absolute; inset: 0;
+  content: '✓'; position: absolute; inset: 0; width: auto; background: none;
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700; color: #06160e;
 }
+/* a metà: attenuata come una fatta, ma senza barrare il testo */
+.today-item.mezza { opacity: .8; }
+.today-item.mezza .today-text { color: var(--text-dim); }
 
 .today-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; cursor: text; word-break: break-word; }
 .today-edit, .today-new {

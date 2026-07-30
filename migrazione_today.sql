@@ -80,6 +80,12 @@ create table if not exists public.task (
   updated_at    timestamptz not null default now()
 );
 
+-- tre stati invece di due: da fare -> a meta' (parziale) -> fatta.
+-- Una task parziale non e' chiusa: fa rollover come una aperta, ma nella
+-- barra di Today vale mezzo passo.
+alter table public.task
+  add column if not exists parziale boolean not null default false;
+
 create index if not exists task_user_giorno_idx on public.task(user_id, giorno);
 create index if not exists task_user_done_idx   on public.task(user_id, done, giorno);
 create index if not exists task_vista_idx       on public.task(vista_id);

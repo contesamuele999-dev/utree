@@ -63,7 +63,7 @@ export default function Today({
     return [...diOggi].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))
   }, [diOggi, riordinaFatte])
 
-  const { done, tot, pct } = completamento(diOggi)
+  const { done, mezze, tot, pct } = completamento(diOggi)
   const serie = useMemo(() => streak(tuttoLoStorico.length ? tuttoLoStorico : task, oggi),
     [tuttoLoStorico, task, oggi])
 
@@ -117,7 +117,11 @@ export default function Today({
         <h2>Today</h2>
         <span className="crumb">{dataLunga(oggi)}</span>
         <div className="spacer" />
-        {tot > 0 && <span className="crumb">{done}/{tot}</span>}
+        {tot > 0 && (
+          <span className="crumb" title={mezze ? `${mezze} a metà` : undefined}>
+            {done}/{tot}{mezze ? ` · ${mezze} a metà` : ''}
+          </span>
+        )}
         {onApriRicorrenti && (
           <button className="iconbtn mini" title="Task ricorrenti" onClick={onApriRicorrenti}>↻</button>
         )}
@@ -149,6 +153,7 @@ export default function Today({
             <li key={t.id}
               className={'today-item'
                 + (t.done ? ' done' : '')
+                + (!t.done && t.parziale ? ' mezza' : '')
                 + (dragId === t.id ? ' dragging' : '')
                 + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')}
               onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(t.id) } }}
@@ -160,11 +165,17 @@ export default function Today({
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragId(t.id) }}
                 onDragEnd={() => { setDragId(null); setOverId(null) }}>⠿</span>
 
-              <label className="today-check">
-                <input type="checkbox" checked={!!t.done} onChange={() => onToggle?.(t)}
-                  aria-label={t.done ? 'Segna come da fare' : 'Segna come completata'} />
+              {/* tre stati: da fare → a metà → fatta → da fare */}
+              <button className={'today-check' + (t.done ? ' done' : t.parziale ? ' mezza' : '')}
+                onClick={() => onToggle?.(t)}
+                aria-pressed={!!t.done}
+                title={t.done ? 'Fatta — clicca per riaprirla'
+                  : t.parziale ? 'A metà — clicca per completarla'
+                    : 'Da fare — clicca per segnarla a metà'}
+                aria-label={t.done ? 'Segna come da fare'
+                  : t.parziale ? 'Segna come completata' : 'Segna come fatta a metà'}>
                 <span className="today-box" />
-              </label>
+              </button>
 
               {editId === t.id ? (
                 <input className="today-edit" ref={editRef} value={editText}
