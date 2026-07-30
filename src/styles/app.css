@@ -702,12 +702,13 @@ a { color: var(--accent); text-decoration: none; }
    Qui gli diamo un contorno tratteggiato e un'area di tocco più generosa: resta
    discreto ma si trova a colpo d'occhio. */
 @media (hover: none) and (max-width: 560px) {
-  .row-add-between { height: 26px; bottom: -13px; }
+  .row-add-between { height: 22px; bottom: -11px; }
   .row-add-between-ico {
-    width: 26px; height: 26px; font-size: 16px; opacity: .85;
-    color: var(--green-bright); background: var(--panel);
-    border: 1px dashed var(--green-deep);
+    width: 22px; height: 22px; font-size: 13px; opacity: .35;
+    color: var(--text-dim); background: transparent;
+    border: none;
   }
+  .row-add-between:active .row-add-between-ico { color: var(--green-bright); opacity: 1; }
 }
 
 /* ＋ in cima alla vista: crea una riga PRIMA di tutte le altre. Non è sovrapposto

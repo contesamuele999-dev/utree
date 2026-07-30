@@ -1972,14 +1972,14 @@ ${rowsHtml}
                 </div>
                 <button className={'iconbtn row-check-btn' + (b.check ? ' on' : '')}
                   title={b.check ? 'Togli il checkbox (/check)' : 'Aggiungi un checkbox alla riga (/check)'}
-                  onClick={() => { toggleCheck(b.id); setMenuId(null) }}>☑</button>
+                  onClick={() => { toggleCheck(b.id); setMenuId(null) }}>✅</button>
                 {onSendToToday && (
                   <button className="iconbtn row-oggi"
                     title="Sposta questa riga fra le task di oggi (/oggi · Ctrl+Shift+T). Esce dalla nota e finisce nel cestino, recuperabile."
                     onClick={() => { mandaOggi(b); setMenuId(null) }}>⚡</button>
                 )}
                 <button className="iconbtn row-img" title="Allega un'immagine a questa riga"
-                  onClick={() => { openImagePicker(b.id); setMenuId(null) }} disabled={imgBusy}>🖼</button>
+                  onClick={() => { openImagePicker(b.id); setMenuId(null) }} disabled={imgBusy}>📷</button>
                 {b.text && (
                   <button className="iconbtn row-clear" title="Svuota il contenuto della riga"
                     onClick={() => { clearBlock(b.id); setMenuId(null) }}>⌫</button>
