@@ -430,7 +430,19 @@ export function riepilogoSettimana(task, giorni = [], oggi = todayKey()) {
     .sort((a, b) => (a.giorno < b.giorno ? -1 : 1))
     .map(g => ({ giorno: g.giorno, vittoria: g.vittoria.trim() }))
 
-  return { start, fine: chiavi[6], chiuse, pianificate, migliore, moodMedio, vittorie }
+  // Non solo QUANTO, ma COSA: le task davvero portate a casa, giorno per giorno.
+  // Un numero si dimentica; l'elenco di quello che hai chiuso no.
+  const fatte = chiavi
+    .map(k => ({
+      giorno: k,
+      task: (task || [])
+        .filter(t => t && t.giorno === k && t.done)
+        .sort((a, b) => (a.ordine || 0) - (b.ordine || 0))
+        .map(t => ({ id: t.id, text: (t.text || '').trim() || 'Senza testo' })),
+    }))
+    .filter(g => g.task.length)
+
+  return { start, fine: chiavi[6], chiuse, pianificate, migliore, moodMedio, vittorie, fatte }
 }
 
 // ============================================================

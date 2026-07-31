@@ -330,6 +330,23 @@ export default function Today({
                   ))}
                 </ul>
               )}
+
+              {/* Cosa hai fatto, non solo quanto: l'elenco per giorno delle task chiuse. */}
+              {(sett.fatte || []).length > 0 && (
+                <div className="sett-fatte">
+                  {sett.fatte.map(g => (
+                    <div key={g.giorno} className="sett-giorno">
+                      <div className="sett-giorno-head">
+                        <b>{dataLunga(g.giorno)}</b>
+                        <span className="crumb">{g.task.length}</span>
+                      </div>
+                      <ul className="sett-task">
+                        {g.task.map(t => <li key={t.id}>✓ {t.text}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

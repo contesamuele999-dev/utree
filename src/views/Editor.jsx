@@ -127,6 +127,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [slash, setSlash] = useState(null)             // { blockId, start, query, sel } menu scorciatoie "/"
   const [menuId, setMenuId] = useState(null)           // id della riga con il menu azioni (⋮) aperto su mobile
   const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
+  const [collapsed, setCollapsed] = useState(() => new Set())   // righe coi sottorami piegati (nascosti)
   const editRef = useRef(null)                          // textarea della riga in modifica (per il caret dopo una scorciatoia)
   const pendingCaret = useRef(null)                     // posizione del caret da applicare all'apertura della modifica (dove hai premuto)
   const searchRef = useRef(null)                       // input ricerca vista (per la digitazione libera)
@@ -331,7 +332,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     setTitle(vista.titolo || '')
     setTrash(cleanTrash)
     setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
-    setSlash(null); setMenuId(null); setRowSheet(null)
+    setSlash(null); setMenuId(null); setRowSheet(null); setCollapsed(new Set())
     prevChars.current = totalChars(vista.blocchi)
     undoStack.current = []; redoStack.current = []
     if ((vista.cestino || []).length !== cleanTrash.length) {
@@ -906,7 +907,14 @@ ${rowsHtml}
     const n = tr.n
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null; tr.id = null; tr.n = 0
-      if (n === 1) { pendingCaret.current = caretFromPoint(cx, cy); setEditing(b.id) }   // singolo = modifica (caret dove hai premuto)
+      if (n === 1) {
+        pendingCaret.current = caretFromPoint(cx, cy)
+        // Aprendo una riga in modifica la ricerca ha finito il suo lavoro: azzerandola
+        // spariscono evidenziazione e oscuramento delle altre righe, e si scrive
+        // vedendo la nota per com'è davvero.
+        if (search) setSearch('')
+        setEditing(b.id)                    // singolo = modifica (caret dove hai premuto)
+      }
       else setRowSheet(b.id)            // doppio = menu rapido delle azioni sulla riga
     }, TAP_MS)
   }
@@ -1608,6 +1616,34 @@ ${rowsHtml}
     return out
   }, [blocks])
 
+  // ---- SOTTORAMI PIEGATI ----------------------------------------------------
+  // Il sotto-albero di una riga sono le righe che la seguono con un rientro
+  // maggiore, fino alla prima di pari livello. Piegarle non tocca i dati: è solo
+  // una vista, e si azzera cambiando vista. Con una ricerca attiva mostriamo
+  // sempre tutto: nascondere un risultato sarebbe un piccolo tradimento.
+  const { figli, nascosti } = useMemo(() => {
+    const n = blocks.length
+    const figli = new Array(n).fill(0)
+    for (let i = 0; i < n; i++) {
+      const d = blocks[i].indent || 0
+      let c = 0
+      for (let j = i + 1; j < n; j++) {
+        if ((blocks[j].indent || 0) > d) c++; else break
+      }
+      figli[i] = c
+    }
+    const nascosti = new Set()
+    for (let i = 0; i < n; i++) {
+      if (!collapsed.has(blocks[i].id)) continue
+      for (let j = i + 1; j <= i + figli[i] && j < n; j++) nascosti.add(blocks[j].id)
+    }
+    return { figli, nascosti }
+  }, [blocks, collapsed])
+
+  const toggleCollapse = (id) => setCollapsed(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
   // Click "fuori" dalle righe mentre si è in selezione → esci dalla modalità selezione.
   // (I click sulle righe e sulle barre-strumenti della selezione sono esclusi.)
   const onEditorPointerDown = (e) => {
@@ -1814,6 +1850,10 @@ ${rowsHtml}
         const isSel = selected.has(b.id)
         const isHit = matchSet ? matchSet.has(b.id) : false
         const di = b.due ? dueInfo(b.due) : null
+        // con una ricerca attiva niente righe piegate: si deve poter vedere ogni risultato
+        if (!sq && nascosti.has(b.id)) return null
+        const nFigli = figli[bi]
+        const piegata = nFigli > 0 && collapsed.has(b.id)
         return (
         <div key={b.id} className="block-wrap">
         <div data-block-id={b.id} data-noswipe=""
@@ -1829,6 +1869,20 @@ ${rowsHtml}
           {(guides[bi] || []).map((g, i) => (
             <span key={i} className={'indent-guide guide-' + g} title={'Livello ' + indent} />
           ))}
+          {/* piega/dispiega i sottorami: compare solo se la riga ne ha */}
+          {nFigli > 0 && (
+            <button className={'row-fold' + (piegata ? ' on' : '')} data-noswipe="" tabIndex={-1}
+              title={piegata ? `Mostra i sottorami (${nFigli})` : `Nascondi i sottorami (${nFigli})`}
+              aria-label={piegata ? 'Mostra i sottorami' : 'Nascondi i sottorami'}
+              aria-expanded={!piegata}
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); toggleCollapse(b.id) }}>
+              {piegata ? '▸' : '▾'}
+            </button>
+          )}
+          {piegata && !sq && (
+            <span className="row-fold-count" title={`${nFigli} righe nascoste`}>{nFigli}</span>
+          )}
           {selectMode && (
             <span className={'sel-box' + (isSel ? ' on' : '')} data-block-id={b.id}
               onPointerDown={e => { e.preventDefault(); if (e.shiftKey) selectRange(b.id); else selDragOn(b.id) }}

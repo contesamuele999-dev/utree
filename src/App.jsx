@@ -88,6 +88,30 @@ export default function App() {
   const TEMPLATE_VIS = '__templates__'
   const templateVis = useRef(null)      // riga della visione-contenitore template (o null se non esiste ancora)
 
+  // ---- TASK "in volo": modifiche ottimistiche non ancora confermate dal cloud ----
+  // Un click su un checkbox può far tornare la finestra in primo piano (evento `focus`),
+  // che innesca un reload: la lettura parte PRIMA che la scrittura sia arrivata e
+  // riscrive lo stato vecchio sopra quello nuovo (la spunta "si riempiva e tornava
+  // vuota"). Qui teniamo traccia delle patch ancora in volo e le ri-applichiamo
+  // sopra i dati appena letti, finché il cloud non le conferma.
+  const taskInVolo = useRef(new Map())     // id -> patch
+  const taskRimosse = useRef(new Set())    // id eliminati ma non ancora confermati
+  const applicaInVolo = (lista) => {
+    if (!taskInVolo.current.size && !taskRimosse.current.size) return lista
+    return lista
+      .filter(t => !taskRimosse.current.has(t.id))
+      .map(t => taskInVolo.current.has(t.id) ? { ...t, ...taskInVolo.current.get(t.id) } : t)
+  }
+  const inVolo = (id, patch) => {
+    taskInVolo.current.set(id, { ...(taskInVolo.current.get(id) || {}), ...patch })
+  }
+  // La patch resta "in volo" ancora un attimo dopo la conferma: una lettura partita
+  // prima della scrittura può atterrare subito dopo, portando con sé il dato vecchio.
+  const fineVolo = (id, subito = false) => {
+    if (subito) taskInVolo.current.delete(id)
+    else setTimeout(() => taskInVolo.current.delete(id), 2000)
+  }
+
   const reload = useCallback(async () => {
     // Prima di leggere: se ci sono scritture rimaste in coda (fatte offline) le
     // rigiochiamo, così la lettura che segue vede già il risultato.
@@ -132,7 +156,7 @@ export default function App() {
         saveSnapshot({ vite: vt, visioni: vs, viste: allViste, links: allLinks, task: allTask, ricorrenza: allRegole, giorno: allGiorni })
       }
     }
-    setTask(allTask)
+    setTask(applicaInVolo(allTask))
     setRegole(allRegole)
     setGiorni(allGiorni)
     defaultVita.current = vt[0] || null
@@ -225,8 +249,10 @@ export default function App() {
         ? { done: true, parziale: false, done_at: new Date().toISOString() }  // a metà → fatta
         : { done: false, parziale: true, done_at: null }             // da fare → a metà
     setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
-    try { await store.update('task', t.id, patch) }
+    inVolo(t.id, patch)
+    try { await store.update('task', t.id, patch); fineVolo(t.id) }
     catch (e) {
+      fineVolo(t.id, true)
       setTask(ts => ts.map(x => x.id === t.id ? { ...x, done: t.done, parziale: t.parziale, done_at: t.done_at } : x))
       avvisaMigrazione(e)
     }
@@ -234,12 +260,16 @@ export default function App() {
 
   const editTaskText = async (t, text) => {
     setTask(ts => ts.map(x => x.id === t.id ? { ...x, text } : x))
-    try { await store.update('task', t.id, { text }) } catch (e) { avvisaMigrazione(e) }
+    inVolo(t.id, { text })
+    try { await store.update('task', t.id, { text }); fineVolo(t.id) }
+    catch (e) { fineVolo(t.id, true); avvisaMigrazione(e) }
   }
 
   const deleteTask = async (t) => {
     setTask(ts => ts.filter(x => x.id !== t.id))
-    try { await store.remove('task', t.id) } catch (e) { avvisaMigrazione(e) }
+    taskRimosse.current.add(t.id)
+    const scorda = () => setTimeout(() => taskRimosse.current.delete(t.id), 2000)
+    try { await store.remove('task', t.id) } catch (e) { avvisaMigrazione(e) } finally { scorda() }
   }
 
   // Riordino: si riscrive `ordine` sull'elenco del giorno, così resta stabile
@@ -254,10 +284,12 @@ export default function App() {
     next.splice(to, 0, next.splice(from, 1)[0])
     const conOrdine = next.map((t, i) => ({ ...t, ordine: i }))
     setTask(ts => ts.map(t => conOrdine.find(x => x.id === t.id) || t))
+    conOrdine.forEach(t => inVolo(t.id, { ordine: t.ordine }))
     try {
       for (const t of conOrdine) if (t.ordine !== delGiorno.find(x => x.id === t.id)?.ordine)
         await store.update('task', t.id, { ordine: t.ordine })
     } catch (e) { avvisaMigrazione(e) }
+    finally { conOrdine.forEach(t => fineVolo(t.id)) }
   }
 
   const openOrigineTask = (t) => {

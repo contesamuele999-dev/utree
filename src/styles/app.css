@@ -304,6 +304,23 @@ a { color: var(--accent); text-decoration: none; }
   scroll-margin-top: 130px; scroll-margin-bottom: 40px;
 }
 .block:hover { background: var(--bg-2); }
+
+/* piega/dispiega i sottorami di una riga: discreto finché non serve */
+.row-fold {
+  flex: 0 0 auto; width: 20px; height: 22px; padding: 0; margin: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: none; border: none; border-radius: 6px;
+  color: var(--text-dim); font-size: 11px; line-height: 1;
+  opacity: .35; transition: opacity .12s, color .12s, background .12s;
+}
+.block:hover .row-fold, .row-fold:hover, .row-fold.on { opacity: 1; }
+.row-fold:hover { color: var(--green-bright); background: var(--panel); }
+.row-fold.on { color: var(--green-bright); }
+.row-fold-count {
+  flex: 0 0 auto; align-self: center;
+  padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  color: var(--green-bright); background: var(--panel); border: 1px solid var(--border);
+}
 .block.dragging { opacity: .4; }
 .block.drop-target { box-shadow: inset 0 2px 0 var(--green-bright); }
 .handle { cursor: grab; color: var(--text-dim); padding: 4px; user-select: none; touch-action: none; font-size: 14px; }
@@ -1345,6 +1362,15 @@ a { color: var(--accent); text-decoration: none; }
 .today-vittorie { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .today-vittorie li { font-size: 14px; }
 .today-vittorie .crumb { margin-right: 8px; }
+
+/* elenco delle task chiuse nella settimana, raggruppate per giorno */
+.sett-fatte { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.sett-giorno-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.sett-giorno-head b { color: var(--text); font-weight: 600; text-transform: capitalize; }
+.sett-task { list-style: none; margin: 4px 0 0; padding: 0 0 0 4px;
+  display: flex; flex-direction: column; gap: 3px;
+  border-left: 2px solid var(--border); }
+.sett-task li { font-size: 13.5px; color: var(--text-dim); padding-left: 8px; word-break: break-word; }
 
 /* ---- Pannello task ricorrenti ---- */
 .ric-pop {
