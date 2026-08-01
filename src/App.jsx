@@ -286,9 +286,13 @@ export default function App() {
     try { await store.remove('task', t.id) } catch (e) { avvisaMigrazione(e) } finally { scorda() }
   }
 
+  const MAX_INDENT_TASK = 6   // stesso tetto di rientro delle righe delle viste
+
   // Riordino: si riscrive `ordine` sull'elenco del giorno, così resta stabile
   // anche dopo un reload da un altro dispositivo.
-  const reorderTask = async (dragId, targetId) => {
+  // `stepDelta` = scostamento orizzontale del trascinamento: sposta il livello di
+  // rientro del ramo spostato, mantenendone i rientri relativi (come nelle viste).
+  const reorderTask = async (dragId, targetId, stepDelta = 0) => {
     const oggi = todayKey()
     const delGiorno = task.filter(t => t.giorno === oggi).sort((a, b) => (a.ordine || 0) - (b.ordine || 0))
     const from = delGiorno.findIndex(t => t.id === dragId)
@@ -300,7 +304,12 @@ export default function App() {
     while (from + n < delGiorno.length && (delGiorno[from + n].indent || 0) > d) n++
     if (to > from && to < from + n) return   // non ci si può spostare dentro sé stessi
     const next = [...delGiorno]
-    const ramo = next.splice(from, n)
+    let ramo = next.splice(from, n)
+    if (stepDelta) {
+      // il ramo si muove tutto insieme: il rientro minimo non scende sotto 0
+      const shift = Math.max(stepDelta, -Math.min(...ramo.map(t => t.indent || 0)))
+      ramo = ramo.map(t => ({ ...t, indent: Math.max(0, Math.min(MAX_INDENT_TASK, (t.indent || 0) + shift)) }))
+    }
     next.splice(to > from ? to - n + 1 : to, 0, ...ramo)
     // dopo lo spostamento il rientro può essere diventato impossibile (un ramo
     // finito in cima): si normalizza, nessuna riga può saltare più di un livello.

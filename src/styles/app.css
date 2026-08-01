@@ -1252,6 +1252,11 @@ a { color: var(--accent); text-decoration: none; }
 .today-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; cursor: text; word-break: break-word; }
 /* nidificazione in Today: stesse guide ad albero delle viste */
 .today-item .indent-guide { align-self: stretch; min-height: 26px; }
+/* pan-y: lo scorrimento verticale della lista resta nativo, ma il gesto
+   orizzontale arriva a noi ed è quello che nidifica la task */
+.today-item { touch-action: pan-y; }
+.today-item.swiping { background: var(--panel); cursor: grabbing; }
+.today-item.swiping .today-text { user-select: none; }
 /* la riga in modifica occupa la larghezza e ospita i suggerimenti sotto */
 .today-editwrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .today-editwrap .today-edit { width: 100%; }

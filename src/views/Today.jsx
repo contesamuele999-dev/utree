@@ -34,6 +34,8 @@ const PREF_FATTE = 'arbora-today-fatte-fondo'
 
 // Nidificazione: stesse regole delle viste (stesso tetto, stessa larghezza di guida).
 const MAX_INDENT = 6
+const INDENT_STEP = 26   // px di trascinamento orizzontale per cambiare livello
+const SWIPE_MIN = 42     // px minimi di uno swipe perché valga come rientro
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // Racchiude la prima occorrenza "libera" di `name` in un collegamento ((Nome)).
 function linkifyName(text, name) {
@@ -173,10 +175,50 @@ export default function Today({
   // click su un ((collegamento)) dentro il testo di una task: apre la vista
   // invece di entrare in modifica.
   const clickTesto = (e, t) => {
+    if (swipeFatto.current) { swipeFatto.current = false; return }   // era uno swipe, non un tap
     const link = e.target.getAttribute?.('data-link')
     if (link && onWikilink) { e.stopPropagation(); onWikilink(link); return }
     setEditId(t.id); setEditText(t.text || '')
   }
+
+  // ---- SWIPE orizzontale sulla riga = ±1 livello di rientro -------------------
+  // Stesso gesto delle viste: si scorre la task a destra per nidificarla sotto
+  // quella sopra, a sinistra per riportarla su. Lo scorrimento verticale della
+  // lista resta nativo (touch-action: pan-y), quindi il gesto non ruba nulla.
+  const swipe = useRef(null)
+  const swipeFatto = useRef(false)
+  const [swipeDx, setSwipeDx] = useState(null)   // { id, dx } — anteprima mentre trascini
+
+  const onRowDown = (e, t) => {
+    if (editId === t.id || !onIndent) return
+    if (e.target.closest?.('button, input, .drag-handle')) return
+    swipe.current = { id: t.id, sx: e.clientX, sy: e.clientY, attivo: false, dx: 0 }
+  }
+  const onRowMove = (e) => {
+    const s = swipe.current
+    if (!s) return
+    const dx = e.clientX - s.sx, dy = e.clientY - s.sy
+    if (!s.attivo) {
+      if (Math.hypot(dx, dy) < 12) return
+      // gesto verticale → è uno scroll: si lascia perdere
+      if (Math.abs(dy) >= Math.abs(dx)) { swipe.current = null; return }
+      s.attivo = true
+    }
+    s.dx = dx
+    setSwipeDx({ id: s.id, dx: Math.max(-3 * INDENT_STEP, Math.min(3 * INDENT_STEP, dx)) })
+  }
+  const onRowUp = (t) => {
+    const s = swipe.current
+    swipe.current = null; setSwipeDx(null)
+    if (!s || !s.attivo) return
+    // il click che segue lo swipe non deve aprire la modifica; la bandierina si
+    // spegne da sola se quel click non arriva (es. dito alzato fuori dal testo)
+    swipeFatto.current = true
+    setTimeout(() => { swipeFatto.current = false }, 400)
+    if (Math.abs(s.dx) < SWIPE_MIN) return
+    rientra(t, s.dx > 0 ? 1 : -1)
+  }
+  const onRowCancel = () => { swipe.current = null; setSwipeDx(null) }
 
   useEffect(() => { if (editId && editRef.current) editRef.current.focus() }, [editId])
   useEffect(() => {
@@ -210,9 +252,16 @@ export default function Today({
     setEditId(null); setEditText('')
   }
 
-  // --- riordino: stessa gestualità di Pipe (handle ⠿ + linea di rilascio) ---
-  const onDrop = (target) => {
-    if (dragId && dragId !== target.id) onReorder?.(dragId, target.id)
+  // --- riordino: handle ⠿ + linea di rilascio. Come nelle viste, lo spostamento
+  //     ORIZZONTALE durante il trascinamento cambia anche il livello di rientro. ---
+  const dragStartX = useRef(0)
+  const onDrop = (target, clientX) => {
+    const step = onIndent ? Math.round(((clientX || dragStartX.current) - dragStartX.current) / INDENT_STEP) : 0
+    if (dragId && dragId !== target.id) onReorder?.(dragId, target.id, step)
+    else if (dragId === target.id && step !== 0) {
+      const t = lista.find(x => x.id === dragId)
+      if (t) rientra(t, step)
+    }
     setDragId(null); setOverId(null)
   }
 
@@ -264,10 +313,16 @@ export default function Today({
                 + (!t.done && t.parziale ? ' mezza' : '')
                 + ((t.indent || 0) ? ' nested' : '')
                 + (dragId === t.id ? ' dragging' : '')
-                + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')}
+                + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')
+                + (swipeDx?.id === t.id ? ' swiping' : '')}
+              style={swipeDx?.id === t.id ? { transform: `translateX(${swipeDx.dx}px)` } : undefined}
               onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(t.id) } }}
               onDragLeave={() => setOverId(id => id === t.id ? null : id)}
-              onDrop={e => { e.preventDefault(); onDrop(t) }}>
+              onDrop={e => { e.preventDefault(); onDrop(t, e.clientX) }}
+              onPointerDown={e => onRowDown(e, t)}
+              onPointerMove={onRowMove}
+              onPointerUp={() => onRowUp(t)}
+              onPointerCancel={onRowCancel}>
 
               {/* guide di nidificazione continue, come nelle viste */}
               {(guides[ti] || []).map((g, i) => (
@@ -284,9 +339,9 @@ export default function Today({
               )}
               {piegata && <span className="row-fold-count" title={`${nFigli} task nascoste`}>{nFigli}</span>}
 
-              <span className="drag-handle" title="Trascina per riordinare"
+              <span className="drag-handle" title="Trascina per riordinare · ←/→ per nidificare"
                 draggable
-                onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragId(t.id) }}
+                onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; dragStartX.current = e.clientX; setDragId(t.id) }}
                 onDragEnd={() => { setDragId(null); setOverId(null) }}>⠿</span>
 
               {/* tre stati: da fare → a metà → fatta → da fare */}
