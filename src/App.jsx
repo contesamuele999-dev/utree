@@ -265,6 +265,20 @@ export default function App() {
     catch (e) { fineVolo(t.id, true); avvisaMigrazione(e) }
   }
 
+  // Nidificazione delle task di Today: `indent` è un semplice livello, come
+  // nelle righe delle viste. L'albero è dato dall'ordine + dal rientro.
+  const indentTask = async (t, indent) => {
+    const prima = t.indent || 0
+    setTask(ts => ts.map(x => x.id === t.id ? { ...x, indent } : x))
+    inVolo(t.id, { indent })
+    try { await store.update('task', t.id, { indent }); fineVolo(t.id) }
+    catch (e) {
+      fineVolo(t.id, true)
+      setTask(ts => ts.map(x => x.id === t.id ? { ...x, indent: prima } : x))
+      avvisaMigrazione(e)
+    }
+  }
+
   const deleteTask = async (t) => {
     setTask(ts => ts.filter(x => x.id !== t.id))
     taskRimosse.current.add(t.id)
@@ -280,14 +294,32 @@ export default function App() {
     const from = delGiorno.findIndex(t => t.id === dragId)
     const to = delGiorno.findIndex(t => t.id === targetId)
     if (from < 0 || to < 0 || from === to) return
+    // si trascina il RAMO, non la singola riga: le sotto-task seguono il genitore
+    const d = delGiorno[from].indent || 0
+    let n = 1
+    while (from + n < delGiorno.length && (delGiorno[from + n].indent || 0) > d) n++
+    if (to > from && to < from + n) return   // non ci si può spostare dentro sé stessi
     const next = [...delGiorno]
-    next.splice(to, 0, next.splice(from, 1)[0])
-    const conOrdine = next.map((t, i) => ({ ...t, ordine: i }))
+    const ramo = next.splice(from, n)
+    next.splice(to > from ? to - n + 1 : to, 0, ...ramo)
+    // dopo lo spostamento il rientro può essere diventato impossibile (un ramo
+    // finito in cima): si normalizza, nessuna riga può saltare più di un livello.
+    let prev = -1
+    const conOrdine = next.map((t, i) => {
+      const ind = i === 0 ? 0 : Math.max(0, Math.min(t.indent || 0, prev + 1))
+      prev = ind
+      return { ...t, ordine: i, indent: ind }
+    })
     setTask(ts => ts.map(t => conOrdine.find(x => x.id === t.id) || t))
-    conOrdine.forEach(t => inVolo(t.id, { ordine: t.ordine }))
+    conOrdine.forEach(t => inVolo(t.id, { ordine: t.ordine, indent: t.indent }))
     try {
-      for (const t of conOrdine) if (t.ordine !== delGiorno.find(x => x.id === t.id)?.ordine)
-        await store.update('task', t.id, { ordine: t.ordine })
+      for (const t of conOrdine) {
+        const old = delGiorno.find(x => x.id === t.id)
+        const patch = {}
+        if (t.ordine !== (old?.ordine)) patch.ordine = t.ordine
+        if (t.indent !== (old?.indent || 0)) patch.indent = t.indent
+        if (Object.keys(patch).length) await store.update('task', t.id, patch)
+      }
     } catch (e) { avvisaMigrazione(e) }
     finally { conOrdine.forEach(t => fineVolo(t.id)) }
   }
@@ -885,6 +917,13 @@ export default function App() {
     setVistaAperta(target)
   }
 
+  // Collegamento cliccato da Today: apre la vista se esiste, ma non la CREA —
+  // da una task un nome sconosciuto non deve generare viste a caso.
+  const openVistaByName = (name) => {
+    const target = viste.find(v => (v.titolo || '').toLowerCase() === (name || '').toLowerCase())
+    if (target) openFromList(target)
+  }
+
   // apre una vista partendo dall'elenco (Pipe/Tree/Links/Progress): azzera la storia.
   // Salva lo scroll di Pipe così, al ritorno, si riparte dallo stesso punto.
   const openFromList = (v) => {
@@ -1088,6 +1127,7 @@ export default function App() {
           {tab === 'today' && (
             <Today task={taskConOrigine} tuttoLoStorico={taskConOrigine} visioni={visioniConArchivio}
               proposte={proposteOggi} giorni={giorni} giornoCorrente={giornoOggi}
+              allViste={viste} onWikilink={openVistaByName} onIndent={indentTask}
               onAdd={addTask} onToggle={toggleTask} onEditText={editTaskText}
               onDelete={deleteTask} onReorder={reorderTask} onOpenOrigine={openOrigineTask}
               onAccettaProposta={accettaProposta}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { completamento, streak, todayKey, parseDay, riepilogoSettimana } from '../lib/today.js'
+import { renderInline } from '../lib/markdown.jsx'
 
 // ============================================================
 // TODAY — le task della giornata.
@@ -31,11 +32,20 @@ const SOGLIA_GIORNATA = 10
 // preferenza persistente: "sposta in fondo le task completate"
 const PREF_FATTE = 'arbora-today-fatte-fondo'
 
+// Nidificazione: stesse regole delle viste (stesso tetto, stessa larghezza di guida).
+const MAX_INDENT = 6
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Racchiude la prima occorrenza "libera" di `name` in un collegamento ((Nome)).
+function linkifyName(text, name) {
+  const re = new RegExp('(?<![\\(\\[])\\b' + escapeRe(name) + '\\b(?![\\)\\]])', 'i')
+  return (text || '').replace(re, (m) => '((' + m + '))')
+}
+
 export default function Today({
   task = [], tuttoLoStorico = [], visioni = [], oggi = todayKey(), proposte = [],
-  giorni = [], giornoCorrente = null,
+  giorni = [], giornoCorrente = null, allViste = [],
   onAdd, onToggle, onEditText, onDelete, onReorder, onOpenOrigine, onAccettaProposta,
-  onApriRicorrenti, onRendiRicorrente, onChiudiGiornata,
+  onApriRicorrenti, onRendiRicorrente, onChiudiGiornata, onWikilink, onIndent,
 }) {
   const [proposteAperte, setProposteAperte] = useState(true)
   const [vittoria, setVittoria] = useState('')
@@ -58,9 +68,22 @@ export default function Today({
     () => task.filter(t => t && t.giorno === oggi).sort((a, b) => (a.ordine || 0) - (b.ordine || 0)),
     [task, oggi]
   )
+  // "fatte in fondo" deve rispettare l'albero: si spostano i rami interi
+  // (una task figlia non può scavalcare il suo genitore).
   const lista = useMemo(() => {
     if (!riordinaFatte) return diOggi
-    return [...diOggi].sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))
+    const rami = []
+    for (let i = 0; i < diOggi.length; i++) {
+      if ((diOggi[i].indent || 0) === 0) rami.push([diOggi[i]])
+      else if (rami.length) rami[rami.length - 1].push(diOggi[i])
+      else rami.push([diOggi[i]])
+    }
+    // un ramo è "chiuso" solo se lo sono tutte le sue righe
+    const chiuso = (r) => r.every(t => t.done)
+    return rami
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => (chiuso(a.r) ? 1 : 0) - (chiuso(b.r) ? 1 : 0) || a.i - b.i)
+      .flatMap(x => x.r)
   }, [diOggi, riordinaFatte])
 
   const { done, mezze, tot, pct } = completamento(diOggi)
@@ -72,6 +95,88 @@ export default function Today({
     () => riepilogoSettimana(tuttoLoStorico.length ? tuttoLoStorico : task, giorni, oggi),
     [tuttoLoStorico, task, giorni, oggi]
   )
+
+  // ---- albero: guide di rientro, conteggio figli, righe piegate --------------
+  // Stessa logica dell'editor delle viste: il sotto-albero di una task sono le
+  // righe che la seguono con un rientro maggiore, fino alla prima di pari livello.
+  const [collapsed, setCollapsed] = useState(() => new Set())
+  const { guides, figli, nascosti } = useMemo(() => {
+    const n = lista.length
+    const depth = lista.map(t => Math.min(t.indent || 0, MAX_INDENT))
+    const lastChild = new Array(n).fill(true)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (depth[j] < depth[i]) break
+        if (depth[j] === depth[i]) { lastChild[i] = false; break }
+      }
+    }
+    const guides = new Array(n)
+    const stack = []
+    for (let i = 0; i < n; i++) {
+      const d = depth[i]
+      stack.length = d
+      const cols = []
+      for (let c = 0; c < d; c++) {
+        if (c === d - 1) cols.push(lastChild[i] ? 'end' : 'tee')
+        else { const anc = stack[c + 1]; cols.push(anc != null && !lastChild[anc] ? 'line' : 'space') }
+      }
+      guides[i] = cols
+      stack[d] = i
+    }
+    const figli = new Array(n).fill(0)
+    for (let i = 0; i < n; i++) {
+      let c = 0
+      for (let j = i + 1; j < n; j++) { if (depth[j] > depth[i]) c++; else break }
+      figli[i] = c
+    }
+    const nascosti = new Set()
+    for (let i = 0; i < n; i++) {
+      if (!collapsed.has(lista[i].id)) continue
+      for (let j = i + 1; j <= i + figli[i] && j < n; j++) nascosti.add(lista[j].id)
+    }
+    return { guides, figli, nascosti }
+  }, [lista, collapsed])
+
+  const toggleCollapse = (id) => setCollapsed(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
+  // Rientro: come nelle viste, una task può scendere al massimo un livello
+  // sotto quella che la precede — così l'albero non ha buchi.
+  const rientra = (t, delta) => {
+    if (!onIndent) return
+    const i = lista.findIndex(x => x.id === t.id)
+    if (i < 0) return
+    const max = i === 0 ? 0 : Math.min((lista[i - 1].indent || 0) + 1, MAX_INDENT)
+    const next = Math.max(0, Math.min((t.indent || 0) + delta, max))
+    if (next !== (t.indent || 0)) onIndent(t, next)
+  }
+
+  // ---- suggerimenti di collegamento: se scrivi il nome di una vista ----------
+  const suggestions = useMemo(() => {
+    const t = editText
+    if (!t.trim()) return []
+    const seen = new Set(); const out = []
+    for (const v of allViste) {
+      const name = (v.titolo || '').trim()
+      if (name.length < 2 || seen.has(name.toLowerCase())) continue
+      if (t.includes('((' + name + '))') || t.includes('[[' + name + ']]')) continue
+      const re = new RegExp('(?<![\\(\\[])\\b' + escapeRe(name) + '\\b(?![\\)\\]])', 'i')
+      if (re.test(t)) { seen.add(name.toLowerCase()); out.push(name) }
+      if (out.length >= 4) break
+    }
+    return out
+  }, [editText, allViste])
+
+  const applyLink = (name) => setEditText(t => linkifyName(t, name))
+
+  // click su un ((collegamento)) dentro il testo di una task: apre la vista
+  // invece di entrare in modifica.
+  const clickTesto = (e, t) => {
+    const link = e.target.getAttribute?.('data-link')
+    if (link && onWikilink) { e.stopPropagation(); onWikilink(link); return }
+    setEditId(t.id); setEditText(t.text || '')
+  }
 
   useEffect(() => { if (editId && editRef.current) editRef.current.focus() }, [editId])
   useEffect(() => {
@@ -147,18 +252,37 @@ export default function Today({
 
       {/* --- elenco --- */}
       <ul className="today-list">
-        {lista.map(t => {
+        {lista.map((t, ti) => {
           const vis = t.vista_id ? visById.get(t.visione_id) : null
+          if (nascosti.has(t.id)) return null
+          const nFigli = figli[ti]
+          const piegata = nFigli > 0 && collapsed.has(t.id)
           return (
             <li key={t.id}
               className={'today-item'
                 + (t.done ? ' done' : '')
                 + (!t.done && t.parziale ? ' mezza' : '')
+                + ((t.indent || 0) ? ' nested' : '')
                 + (dragId === t.id ? ' dragging' : '')
                 + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')}
               onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(t.id) } }}
               onDragLeave={() => setOverId(id => id === t.id ? null : id)}
               onDrop={e => { e.preventDefault(); onDrop(t) }}>
+
+              {/* guide di nidificazione continue, come nelle viste */}
+              {(guides[ti] || []).map((g, i) => (
+                <span key={i} className={'indent-guide guide-' + g} />
+              ))}
+
+              {/* piega/dispiega i sotto-task */}
+              {nFigli > 0 && (
+                <button className={'row-fold' + (piegata ? ' on' : '')} tabIndex={-1}
+                  title={piegata ? `Mostra i sotto-task (${nFigli})` : `Nascondi i sotto-task (${nFigli})`}
+                  aria-label={piegata ? 'Mostra i sotto-task' : 'Nascondi i sotto-task'}
+                  aria-expanded={!piegata}
+                  onClick={() => toggleCollapse(t.id)}>{piegata ? '▸' : '▾'}</button>
+              )}
+              {piegata && <span className="row-fold-count" title={`${nFigli} task nascoste`}>{nFigli}</span>}
 
               <span className="drag-handle" title="Trascina per riordinare"
                 draggable
@@ -178,20 +302,50 @@ export default function Today({
               </button>
 
               {editId === t.id ? (
-                <input className="today-edit" ref={editRef} value={editText}
-                  onChange={e => setEditText(e.target.value)}
-                  onBlur={confermaEdit}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); confermaEdit() }
-                    else if (e.key === 'Escape') { setEditId(null); setEditText('') }
-                  }} />
+                <div className="today-editwrap">
+                  <input className="today-edit" ref={editRef} value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onBlur={confermaEdit}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        // se c'è un collegamento suggerito, Invio conferma quello
+                        if (suggestions.length) applyLink(suggestions[0]); else confermaEdit()
+                      } else if (e.key === 'Tab') {
+                        // Tab / ⇧Tab = rientra / riduci, come nelle viste
+                        e.preventDefault(); rientra(t, e.shiftKey ? -1 : 1)
+                      } else if (e.key === 'Escape') { setEditId(null); setEditText('') }
+                    }} />
+                  {suggestions.length > 0 && (
+                    <div className="link-suggest">
+                      <span className="link-suggest-lbl">Collega a:</span>
+                      {suggestions.map((name, i) => (
+                        <button key={name} type="button" className={'link-suggest-chip' + (i === 0 ? ' first' : '')}
+                          onMouseDown={e => e.preventDefault()} onClick={() => applyLink(name)}>
+                          🔗 {name}{i === 0 ? ' ↵' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : (
-                <span className="today-text"
-                  onClick={() => { setEditId(t.id); setEditText(t.text || '') }}
-                  title="Clicca per modificare">{t.text || 'Senza testo'}</span>
+                <span className="today-text rendered" onClick={e => clickTesto(e, t)}
+                  title="Clicca per modificare">
+                  {t.text ? renderInline(t.text) : 'Senza testo'}
+                </span>
               )}
 
               <div className="today-badges">
+                {onIndent && (
+                  <>
+                    <button className="iconbtn mini" title="Riduci il rientro (⇧Tab)"
+                      disabled={!(t.indent || 0)}
+                      onClick={() => rientra(t, -1)}>⇤</button>
+                    <button className="iconbtn mini" title="Rientra sotto la task sopra (Tab)"
+                      disabled={ti === 0 || (t.indent || 0) >= Math.min((lista[ti - 1].indent || 0) + 1, MAX_INDENT)}
+                      onClick={() => rientra(t, 1)}>⇥</button>
+                  </>
+                )}
                 {t.ricorrenza_id && <span className="today-badge ric" title="Task ricorrente">↻</span>}
                 {(t.rollover || 0) >= 3 && (
                   <span className="today-badge rinvii" title={`Rimandata ${t.rollover} volte: vale ancora la pena?`}>

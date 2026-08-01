@@ -307,11 +307,16 @@ a { color: var(--accent); text-decoration: none; }
 
 /* piega/dispiega i sottorami di una riga: discreto finché non serve */
 .row-fold {
-  flex: 0 0 auto; width: 20px; height: 22px; padding: 0; margin: 0;
+  flex: 0 0 auto; width: 26px; height: 26px; padding: 0; margin: -2px 0 0;
   display: grid; place-items: center; cursor: pointer;
-  background: none; border: none; border-radius: 6px;
-  color: var(--text-dim); font-size: 11px; line-height: 1;
-  opacity: .35; transition: opacity .12s, color .12s, background .12s;
+  background: none; border: none; border-radius: 8px;
+  color: var(--text-dim); font-size: 17px; line-height: 1;
+  opacity: .5; transition: opacity .12s, color .12s, background .12s;
+}
+/* da mouse il bersaglio era minuscolo: su desktop il triangolino è più grande
+   e sempre leggibile, non solo all'hover della riga */
+@media (hover: hover) and (pointer: fine) {
+  .row-fold { width: 28px; height: 28px; font-size: 19px; opacity: .6; }
 }
 .block:hover .row-fold, .row-fold:hover, .row-fold.on { opacity: 1; }
 .row-fold:hover { color: var(--green-bright); background: var(--panel); }
@@ -1245,6 +1250,12 @@ a { color: var(--accent); text-decoration: none; }
 .today-item.mezza .today-text { color: var(--text-dim); }
 
 .today-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; cursor: text; word-break: break-word; }
+/* nidificazione in Today: stesse guide ad albero delle viste */
+.today-item .indent-guide { align-self: stretch; min-height: 26px; }
+/* la riga in modifica occupa la larghezza e ospita i suggerimenti sotto */
+.today-editwrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.today-editwrap .today-edit { width: 100%; }
+.today-editwrap .link-suggest { margin: 0; }
 .today-edit, .today-new {
   flex: 1; min-width: 0; background: var(--bg-2); border: 1px solid var(--green-deep);
   border-radius: 8px; color: var(--text); font: inherit; font-size: 14.5px;

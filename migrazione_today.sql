@@ -86,6 +86,11 @@ create table if not exists public.task (
 alter table public.task
   add column if not exists parziale boolean not null default false;
 
+-- Nidificazione: come nelle righe delle viste, l'albero e' dato dall'ordine
+-- piu' un livello di rientro. 0 = task di primo livello.
+alter table public.task
+  add column if not exists indent int not null default 0;
+
 create index if not exists task_user_giorno_idx on public.task(user_id, giorno);
 create index if not exists task_user_done_idx   on public.task(user_id, done, giorno);
 create index if not exists task_vista_idx       on public.task(vista_id);
