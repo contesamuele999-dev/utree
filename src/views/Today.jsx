@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { completamento, streak, todayKey, parseDay, riepilogoSettimana } from '../lib/today.js'
+import { completamento, fatteInFondo, streak, todayKey, parseDay, riepilogoSettimana } from '../lib/today.js'
 import { renderInline } from '../lib/markdown.jsx'
 
 // ============================================================
@@ -70,22 +70,11 @@ export default function Today({
     () => task.filter(t => t && t.giorno === oggi).sort((a, b) => (a.ordine || 0) - (b.ordine || 0)),
     [task, oggi]
   )
-  // "fatte in fondo" deve rispettare l'albero: si spostano i rami interi
-  // (una task figlia non può scavalcare il suo genitore).
+  // "fatte in fondo" ordina i fratelli a ogni livello e sposta sempre rami
+  // interi: una task figlia non può mai separarsi dal suo genitore.
   const lista = useMemo(() => {
     if (!riordinaFatte) return diOggi
-    const rami = []
-    for (let i = 0; i < diOggi.length; i++) {
-      if ((diOggi[i].indent || 0) === 0) rami.push([diOggi[i]])
-      else if (rami.length) rami[rami.length - 1].push(diOggi[i])
-      else rami.push([diOggi[i]])
-    }
-    // un ramo è "chiuso" solo se lo sono tutte le sue righe
-    const chiuso = (r) => r.every(t => t.done)
-    return rami
-      .map((r, i) => ({ r, i }))
-      .sort((a, b) => (chiuso(a.r) ? 1 : 0) - (chiuso(b.r) ? 1 : 0) || a.i - b.i)
-      .flatMap(x => x.r)
+    return fatteInFondo(diOggi, MAX_INDENT)
   }, [diOggi, riordinaFatte])
 
   const { done, mezze, tot, pct } = completamento(diOggi)

@@ -19,6 +19,49 @@ export function dayKey(d) {
 }
 export function todayKey() { return dayKey(new Date()) }
 
+// Ordina le task completate in fondo senza spezzare la gerarchia. L'ordinamento
+// avviene fra fratelli a ogni livello: un sotto-albero si muove sempre intero e
+// scende fra i completati solo quando tutte le sue righe sono concluse.
+// Normalizziamo anche eventuali rientri impossibili (per esempio una prima riga
+// a livello 2), così dati vecchi o arrivati da due dispositivi non si agganciano
+// per errore al ramo precedente.
+export function fatteInFondo(task = [], maxIndent = 6) {
+  let prev = -1
+  const normalizzate = task.filter(Boolean).map((t, i) => {
+    const raw = Math.max(0, Math.min(Number(t.indent) || 0, maxIndent))
+    const indent = i === 0 ? 0 : Math.min(raw, prev + 1)
+    prev = indent
+    return { ...t, indent }
+  })
+
+  const radici = []
+  const stack = []
+  for (const task of normalizzate) {
+    const nodo = { task, figli: [] }
+    const depth = task.indent || 0
+    if (depth === 0) radici.push(nodo)
+    else stack[depth - 1].figli.push(nodo)
+    stack.length = depth
+    stack[depth] = nodo
+  }
+
+  const ordina = (nodi) => nodi
+    .map((nodo, indice) => {
+      nodo.figli = ordina(nodo.figli)
+      const chiuso = !!nodo.task.done && nodo.figli.every(figlio => figlio.chiuso)
+      return { ...nodo, chiuso, indice }
+    })
+    .sort((a, b) => Number(a.chiuso) - Number(b.chiuso) || a.indice - b.indice)
+
+  const out = []
+  const visita = (nodi) => nodi.forEach(nodo => {
+    out.push(nodo.task)
+    visita(nodo.figli)
+  })
+  visita(ordina(radici))
+  return out
+}
+
 // 'YYYY-MM-DD' -> Date locale a mezzogiorno (immune ai salti DST).
 export function parseDay(key) {
   if (typeof key !== 'string') return null

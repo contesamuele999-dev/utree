@@ -9,7 +9,7 @@ import {
   dayKey, parseDay, addDays, diffDays, weekStart, lastDayOfMonth,
   occorreIl, occorrenze, prossimeOccorrenze,
   pianificaRicorrenti, pianificaRollover,
-  completamento, perGiorno, streak, tassoDiRinvio, oreDiChiusura,
+  completamento, fatteInFondo, perGiorno, streak, tassoDiRinvio, oreDiChiusura,
   tenutaRicorrenti, bucketize, heatmapAnno, proposte, riepilogoSettimana,
 } from './today.js'
 
@@ -264,6 +264,30 @@ test('tenuta delle ricorrenti: chiuse su generate', () => {
   const t = tenutaRicorrenti(task, regole)
   assert.deepEqual(t.find(x => x.id === 'r1'), { id: 'r1', text: 'Stretching', generate: 3, chiuse: 2, pct: 67 })
   assert.equal(t.find(x => x.id === 'r2').pct, 0)
+})
+
+// ---------- ordinamento ----------
+test('fatte in fondo: ordina i fratelli senza spezzare i rami', () => {
+  const task = [
+    { id: 'a', indent: 0, done: false },
+    { id: 'a1', indent: 1, done: true },
+    { id: 'a2', indent: 1, done: false },
+    { id: 'b', indent: 0, done: true },
+    { id: 'b1', indent: 1, done: true },
+    { id: 'c', indent: 0, done: false },
+  ]
+  assert.deepEqual(fatteInFondo(task).map(t => t.id), ['a', 'a2', 'a1', 'c', 'b', 'b1'])
+})
+
+test('fatte in fondo: normalizza rientri impossibili senza perdere task', () => {
+  const task = [
+    { id: 'a', indent: 2, done: true },
+    { id: 'b', indent: 4, done: false },
+    { id: 'c', indent: 0, done: false },
+  ]
+  const result = fatteInFondo(task)
+  assert.deepEqual(result.map(t => t.id), ['a', 'b', 'c'])
+  assert.deepEqual(Object.fromEntries(result.map(t => [t.id, t.indent])), { c: 0, a: 0, b: 1 })
 })
 
 // ---------- grafici ----------

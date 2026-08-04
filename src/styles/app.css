@@ -307,16 +307,16 @@ a { color: var(--accent); text-decoration: none; }
 
 /* piega/dispiega i sottorami di una riga: discreto finché non serve */
 .row-fold {
-  flex: 0 0 auto; width: 26px; height: 26px; padding: 0; margin: -2px 0 0;
+  flex: 0 0 auto; width: 32px; height: 32px; padding: 0; margin: -5px 0 -3px;
   display: grid; place-items: center; cursor: pointer;
   background: none; border: none; border-radius: 8px;
-  color: var(--text-dim); font-size: 17px; line-height: 1;
+  color: var(--text-dim); font-size: 22px; line-height: 1;
   opacity: .5; transition: opacity .12s, color .12s, background .12s;
 }
 /* da mouse il bersaglio era minuscolo: su desktop il triangolino è più grande
    e sempre leggibile, non solo all'hover della riga */
 @media (hover: hover) and (pointer: fine) {
-  .row-fold { width: 28px; height: 28px; font-size: 19px; opacity: .6; }
+  .row-fold { width: 34px; height: 34px; font-size: 24px; opacity: .7; }
 }
 .block:hover .row-fold, .row-fold:hover, .row-fold.on { opacity: 1; }
 .row-fold:hover { color: var(--green-bright); background: var(--panel); }

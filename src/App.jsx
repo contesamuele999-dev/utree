@@ -506,6 +506,7 @@ export default function App() {
   overlaysRef.current = [
     confirm && (() => setConfirm(null)),
     prompt && (() => setPrompt(null)),
+    templatePick && (() => setTemplatePick(false)),
     fabOpen && (() => setFabOpen(false)),
     themeOpen && (() => setThemeOpen(false)),
     ricorrentiOpen && (() => setRicorrentiOpen(null)),
@@ -531,6 +532,14 @@ export default function App() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  // Una vista viene aperta nello stato React, senza una vera navigazione del
+  // browser. Su alcune PWA Android la sola sentinella iniziale può essere già
+  // stata consumata: aggiungiamo quindi una voce di history quando si entra in
+  // una vista, così il tasto Indietro genera sempre popstate e chiude la vista.
+  useEffect(() => {
+    if (vistaAperta) window.history.pushState({ arbora: true, vista: vistaAperta.id }, '')
+  }, [vistaAperta?.id])
 
   // ---- swipe fra le schede ----
   const changeTab = (next, dir) => { setTabDir(dir); setTab(next) }
@@ -1462,4 +1471,3 @@ function BrandLogo() {
     </svg>
   )
 }
-
