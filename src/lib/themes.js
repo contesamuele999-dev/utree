@@ -25,7 +25,7 @@ export const THEMES = {
       '--accent':'#ffc089','--bg-grad':'radial-gradient(1200px 800px at 70% -10%, #2a1a16 0%, #16100f 55%)' },
   },
   chiaro: {
-    nome: 'Chiaro', emoji: '☀️',
+    nome: 'Chiaro', emoji: '☀️', chiaro: true,
     vars: { '--bg':'#f4f7f4','--bg-2':'#ffffff','--panel':'#ffffff','--panel-2':'#eef3ee','--border':'#d6e0d8',
       '--text':'#1a2620','--text-dim':'#5c7065','--green':'#1f7a4d','--green-bright':'#2e9e63','--green-deep':'#155c3a',
       '--accent':'#1f7a4d','--bg-grad':'radial-gradient(1200px 800px at 70% -10%, #e9f1ea 0%, #f4f7f4 55%)' },
@@ -41,6 +41,12 @@ export function applyTheme(id) {
     if (k === '--bg-grad') document.body.style.background = v
     else root.style.setProperty(k, v)
   })
+  // color-scheme dice al browser di che "famiglia" è il tema: da questo dipendono
+  // le parti che disegna LUI e che il CSS non può ritoccare — barre di scorrimento
+  // di sistema, selettori data/ora, campi nativi. Senza, con un tema scuro il
+  // browser continuava a disegnare scrollbar chiare, che spiccavano come un dito
+  // in un occhio.
+  root.style.colorScheme = t.chiaro ? 'light' : 'dark'
   localStorage.setItem(KEY, id)
 }
 

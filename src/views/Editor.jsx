@@ -128,6 +128,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [menuId, setMenuId] = useState(null)           // id della riga con il menu azioni (⋮) aperto su mobile
   const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
   const [collapsed, setCollapsed] = useState(() => new Set())   // righe coi sottorami piegati (nascosti)
+  const [ancoraAttiva, setAncoraAttiva] = useState(null)        // ancora (titolo) in cima allo schermo
+  const stickyRef = useRef(null)                        // gruppo ancorato in alto: serve a misurarne l'ingombro
+  const anchorBarRef = useRef(null)                     // barra delle ancore (scorrimento orizzontale delle chip)
   const editRef = useRef(null)                          // textarea della riga in modifica (per il caret dopo una scorciatoia)
   const pendingCaret = useRef(null)                     // posizione del caret da applicare all'apertura della modifica (dove hai premuto)
   const searchRef = useRef(null)                       // input ricerca vista (per la digitazione libera)
@@ -1644,6 +1647,86 @@ ${rowsHtml}
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
   })
 
+  // ---- ANCORE: i titoli della vista come punti d'atterraggio -----------------
+  // Ogni riga che è un titolo markdown (#, ##, ###…) diventa un'ancora: compare
+  // nella barra ancorata in alto e ci si arriva con un tocco, scorrendo la vista.
+  // Niente da configurare — chi scrive titoli sta già dicendo dove sono i capitoli.
+  // I titoli finiti dentro un ramo piegato restano fuori: non si può atterrare
+  // dove non c'è pista.
+  const ancoreLabel = (t) => (t || '')
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/\*\*|\^\^|`/g, '')
+    .replace(/\(\(([^)]+)\)\)/g, '$1').replace(/\[\[([^\]]+)\]\]/g, '$1')
+    .replace(/^\*|\*$/g, '')
+    .trim()
+  const ancore = useMemo(() => {
+    const out = []
+    for (const b of blocks) {
+      const lvl = headingLevel(b.text)
+      if (!lvl) continue
+      if (nascosti.has(b.id)) continue
+      const label = ancoreLabel(b.text)
+      if (!label) continue
+      out.push({ id: b.id, label, lvl })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, nascosti])
+
+  // quanto spazio occupa la parte ancorata in alto: le righe vanno portate SOTTO,
+  // non dietro
+  const stickyOffset = () => (stickyRef.current?.offsetHeight || 0) + 10
+
+  const scroller = () => rootRef.current?.closest('.content') || document.scrollingElement
+
+  const goToAnchor = (id) => {
+    const sc = scroller()
+    const el = rootRef.current?.querySelector(`[data-block-id="${id}"]`)
+    if (!sc || !el) return
+    stopFling()
+    const top = sc.scrollTop + el.getBoundingClientRect().top - sc.getBoundingClientRect().top - stickyOffset()
+    try { sc.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }) } catch { sc.scrollTop = Math.max(0, top) }
+    setAncoraAttiva(id)
+  }
+
+  // Ancora "corrente": l'ultimo titolo passato sotto la barra. Si aggiorna mentre
+  // si scorre, così la barra dice sempre dove ci si trova.
+  useEffect(() => {
+    if (!ancore.length) { setAncoraAttiva(null); return }
+    const sc = scroller()
+    if (!sc) return
+    let raf = 0
+    const calcola = () => {
+      raf = 0
+      const base = sc.getBoundingClientRect().top + stickyOffset() + 6
+      let cur = ancore[0].id
+      for (const a of ancore) {
+        const el = rootRef.current?.querySelector(`[data-block-id="${a.id}"]`)
+        if (!el) continue
+        if (el.getBoundingClientRect().top <= base) cur = a.id
+        else break
+      }
+      setAncoraAttiva(cur)
+    }
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(calcola) }
+    sc.addEventListener('scroll', onScroll, { passive: true })
+    calcola()
+    return () => { sc.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ancore])
+
+  // Porta in vista la chip attiva scorrendo SOLO la barra (niente scrollIntoView:
+  // trascinerebbe con sé anche lo scorrimento verticale della vista).
+  useEffect(() => {
+    const bar = anchorBarRef.current
+    if (!bar || !ancoraAttiva) return
+    const chip = bar.querySelector(`[data-anchor="${ancoraAttiva}"]`)
+    if (!chip) return
+    const l = chip.offsetLeft, r = l + chip.offsetWidth
+    if (l < bar.scrollLeft) bar.scrollTo({ left: Math.max(0, l - 12), behavior: 'smooth' })
+    else if (r > bar.scrollLeft + bar.clientWidth) bar.scrollTo({ left: r - bar.clientWidth + 12, behavior: 'smooth' })
+  }, [ancoraAttiva])
+
   // Click "fuori" dalle righe mentre si è in selezione → esci dalla modalità selezione.
   // (I click sulle righe e sulle barre-strumenti della selezione sono esclusi.)
   const onEditorPointerDown = (e) => {
@@ -1656,7 +1739,7 @@ ${rowsHtml}
 
   return (
     <div className="editor" ref={rootRef} tabIndex={-1} onPointerDown={onEditorPointerDown}>
-      <div className="editor-sticky">
+      <div className="editor-sticky" ref={stickyRef}>
       <div className="editor-head">
         <input className="editor-title" value={title} placeholder="Titolo della vista…"
           size={Math.min(Math.max((title.length || 18) + 1, 4), 38)}
@@ -1757,6 +1840,22 @@ ${rowsHtml}
         </>
       )}
 
+      {/* Barra delle ANCORE: i titoli della vista, sempre a portata di pollice.
+          Resta dentro il gruppo ancorato, quindi non scorre via; compare solo
+          se nella vista c'è almeno un titolo. */}
+      {ancore.length > 0 && (
+        <div className="anchor-bar" ref={anchorBarRef} data-noswipe=""
+          onPointerDown={e => e.stopPropagation()}>
+          <span className="anchor-bar-ico" title="Titoli di questa vista">⚓</span>
+          {ancore.map(a => (
+            <button key={a.id} type="button" data-anchor={a.id}
+              className={'anchor-chip lvl' + Math.min(a.lvl, 3) + (ancoraAttiva === a.id ? ' on' : '')}
+              title={'Vai a: ' + a.label}
+              onClick={() => goToAnchor(a.id)}>{a.label}</button>
+          ))}
+        </div>
+      )}
+
       </div>
 
       {/* I suggerimenti di collegamento sono ora ancorati sotto la riga in modifica
@@ -1797,6 +1896,8 @@ ${rowsHtml}
             <li><b className="hint-cat" /> <span><code>Canc</code> = elimina · <code>Backspace</code> = svuota · click fuori = esci</span></li>
 
             <li className="grp"><b className="hint-cat">Foglio</b> <span><b>⧉ Copia foglio</b> · <b>🖨 Stampa</b> · <b>🗑 Cestino</b></span></li>
+
+            <li className="grp"><b className="hint-cat">Ancore</b> <span>ogni <b>titolo</b> (<code># Titolo</code>) diventa un'ancora nella barra ⚓ in alto: un tocco e ci si arriva</span></li>
 
             <li className="grp"><b className="hint-cat">Navigazione</b> <span><b>🔍</b> cerca · <b>🔗</b> collega vista</span></li>
             <li><b className="hint-cat" /> <span>Swipe ←/→ = cambia vista · <code>Esc</code> = chiudi</span></li>
