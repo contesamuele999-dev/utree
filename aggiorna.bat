@@ -1,12 +1,12 @@
 @echo off
 REM ====================================================
-REM  Arbora - aggiornamento rapido su GitHub Pages
+REM  uTree - aggiornamento rapido su GitHub Pages
 REM  Doppio click per pushare le modifiche e ripubblicare
 REM ====================================================
 cd /d "%~dp0"
 
 echo.
-echo === Aggiornamento Arbora ===
+echo === Aggiornamento uTree ===
 echo.
 
 set /p msg="Descrivi la modifica (invio per 'update'): "

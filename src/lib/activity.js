@@ -4,7 +4,7 @@
 // prima di oggi, quindi parte da ora e cresce con l'uso.
 // Struttura: { "2026-07-04": { chars: 1234 }, ... }
 // ============================================================
-const LS_KEY = 'arbora-activity'
+const LS_KEY = 'utree-activity'
 
 function load() {
   try { return JSON.parse(localStorage.getItem(LS_KEY)) || {} }

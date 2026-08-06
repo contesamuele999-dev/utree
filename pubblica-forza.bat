@@ -1,6 +1,6 @@
 @echo off
 REM ==========================================================
-REM  Arbora - PUBBLICAZIONE FORZATA
+REM  uTree - PUBBLICAZIONE FORZATA
 REM  Sovrascrive il remote (GitHub) con lo stato LOCALE.
 REM  ATTENZIONE: i commit presenti SOLO su GitHub verranno persi
 REM  (es. il commit "Add files via upload").

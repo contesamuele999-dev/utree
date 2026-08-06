@@ -10,7 +10,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!hasSupabase) {
       // Modalità demo: utente fittizio locale
-      setUser({ id: 'demo-user', email: 'demo@arbora.local', demo: true })
+      setUser({ id: 'demo-user', email: 'demo@utree.local', demo: true })
       setLoading(false)
       return
     }

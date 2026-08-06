@@ -53,7 +53,7 @@ export async function importGoogleKeep(files, { skipTrashed = true, skipArchived
   if (!notes.length) throw new Error('Nessuna nota Keep valida trovata nei file selezionati.')
 
   const vite = await store.list('vite')
-  if (!vite.length) throw new Error('Nessuna "vita" trovata: crea prima una vita/visione in Arbora.')
+  if (!vite.length) throw new Error('Nessuna "vita" trovata: crea prima una vita/visione in uTree.')
   const visione = await store.insert('visioni', {
     vita_id: vite[0].id,
     titolo: `Google Keep (${new Date().toLocaleDateString('it-IT')})`,

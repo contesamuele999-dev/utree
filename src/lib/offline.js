@@ -19,8 +19,8 @@
 // a 3 vie (lib/localcache.js), più adatta al testo modificato in continuo.
 // ============================================================
 
-const SNAP_KEY = 'arbora-snapshot'
-const OUT_KEY = 'arbora-outbox'
+const SNAP_KEY = 'utree-snapshot'
+const OUT_KEY = 'utree-outbox'
 
 const readJSON = (k, fallback) => {
   try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fallback : v }
@@ -49,7 +49,7 @@ export const isOfflineId = (id) => typeof id === 'string' && id.startsWith('off-
 // l'unica cosa che si perde sono le modifiche non ancora salite (se ce ne sono, il
 // badge in alto le segnala prima).
 export function purgeLocalData() {
-  for (const k of [SNAP_KEY, OUT_KEY, 'arbora-vista-cache']) {
+  for (const k of [SNAP_KEY, OUT_KEY, 'utree-vista-cache']) {
     try { localStorage.removeItem(k) } catch { /* ignore */ }
   }
 }

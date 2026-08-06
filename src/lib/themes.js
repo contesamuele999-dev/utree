@@ -1,4 +1,4 @@
-// Temi predefiniti di Arbora. Ogni tema sovrascrive le variabili CSS :root.
+// Temi predefiniti di uTree. Ogni tema sovrascrive le variabili CSS :root.
 export const THEMES = {
   foresta: {
     nome: 'Foresta', emoji: '🌲',
@@ -32,7 +32,7 @@ export const THEMES = {
   },
 }
 
-const KEY = 'arbora-theme'
+const KEY = 'utree-theme'
 
 export function applyTheme(id) {
   const t = THEMES[id] || THEMES.foresta

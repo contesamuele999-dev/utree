@@ -6,6 +6,18 @@ import ErrorBoundary from './lib/ErrorBoundary.jsx'
 import './styles/app.css'
 import { loadTheme } from './lib/themes.js'
 
+// L'app si chiamava "arbora": le chiavi salvate nel browser sono passate a
+// "utree-". Al primo avvio dopo l'aggiornamento le ricopiamo, altrimenti tema,
+// preferenze, cache offline e coda di sincronizzazione ripartirebbero da zero.
+try {
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith('arbora-')) continue
+    const nuova = 'utree-' + k.slice(7)
+    if (localStorage.getItem(nuova) === null) localStorage.setItem(nuova, localStorage.getItem(k))
+    localStorage.removeItem(k)
+  }
+} catch { /* storage non disponibile: si riparte pulito */ }
+
 loadTheme()
 
 // L'ErrorBoundary sta FUORI da tutto: un errore di render, senza, smonta

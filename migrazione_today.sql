@@ -1,5 +1,5 @@
 -- ============================================================
--- Arbora — migrazione sezione TODAY
+-- uTree — migrazione sezione TODAY
 -- Esegui questo nello SQL Editor di Supabase (una volta sola).
 -- Ordine obbligatorio: ricorrenza -> task -> giorno (FK).
 -- Idempotente: si puo' rieseguire senza danni.

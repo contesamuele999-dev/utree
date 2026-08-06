@@ -1,9 +1,9 @@
 {
-  "name": "arbora",
+  "name": "utree",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Arbora - app per le note di un imprenditore. Vite, Visioni, Viste.",
+  "description": "uTree - app per le note di un imprenditore. Vite, Visioni, Viste.",
   "author": "Samuele Contessa",
   "license": "UNLICENSED",
   "scripts": {

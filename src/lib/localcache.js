@@ -8,9 +8,9 @@
 // ============================================================
 import { mergeBlocchi } from './store.js'
 
-const KEY = 'arbora-vista-cache'
+const KEY = 'utree-vista-cache'
 // Flag: la colonna `cestino` non esiste ancora su Supabase.
-const NO_CESTINO = 'arbora-no-cestino-col'
+const NO_CESTINO = 'utree-no-cestino-col'
 
 function read() {
   try { return JSON.parse(localStorage.getItem(KEY)) || {} } catch { return {} }

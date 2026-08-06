@@ -1,5 +1,5 @@
 -- ============================================================
--- Arbora — task "a metà" (Today)
+-- uTree — task "a metà" (Today)
 -- Esegui questo nello SQL Editor di Supabase (una volta sola).
 -- Idempotente: si puo' rieseguire senza danni.
 --

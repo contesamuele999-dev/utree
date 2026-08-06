@@ -21,7 +21,7 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 const SCOPE = 'https://www.googleapis.com/auth/calendar.events'
 const GSI_SRC = 'https://accounts.google.com/gsi/client'
 const API = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
-const KEY = 'arbora-gcal'   // localStorage: id dell'utente collegato ('' se nessuno)
+const KEY = 'utree-gcal'   // localStorage: id dell'utente collegato ('' se nessuno)
 
 // True se l'app è configurata con un Client ID Google.
 export const hasGoogleCalendar = Boolean(CLIENT_ID)
@@ -121,7 +121,7 @@ function plainTitle(text) {
     .replace(/[#*`>_~]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 120) || 'Arbora — scadenza'
+    .slice(0, 120) || 'uTree — scadenza'
 }
 
 // Evento "tutto il giorno" sulla data di scadenza (end = giorno dopo, come da spec Google).
@@ -132,13 +132,13 @@ function eventBody(block, vistaTitle) {
   const endStr = end.toISOString().slice(0, 10)
   return {
     summary: plainTitle(block.text),
-    description: 'Scadenza da Arbora' + (vistaTitle ? ' · ' + vistaTitle : ''),
-    colorId: '10',            // "Basil" — sfumatura di verde (coerente col tema Arbora)
+    description: 'Scadenza da uTree' + (vistaTitle ? ' · ' + vistaTitle : ''),
+    colorId: '10',            // "Basil" — sfumatura di verde (coerente col tema uTree)
     transparency: 'transparent',  // "Disponibile" (non "Occupato"): non blocca Calendly & co.
     start: { date: day },
     end: { date: endStr },
-    source: { title: 'Arbora', url: window.location.origin },
-    extendedProperties: { private: { arboraBlock: String(block.id) } },
+    source: { title: 'uTree', url: window.location.origin },
+    extendedProperties: { private: { utreeBlock: String(block.id) } },
   }
 }
 

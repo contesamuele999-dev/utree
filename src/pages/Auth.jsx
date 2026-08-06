@@ -29,8 +29,8 @@ export default function Auth() {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <img src={`${import.meta.env.BASE_URL}favicon.svg`} width="44" alt="Arbora" />
-        <h1>Arbora</h1>
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} width="44" alt="uTree" />
+        <h1>uTree</h1>
         <p className="sub">Le tue idee, ad albero. Vite · Visioni · Viste.</p>
 
         {isDemo && (

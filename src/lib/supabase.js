@@ -8,7 +8,7 @@ export const hasSupabase = Boolean(url && key)
 
 // "Ricordami": se attivo (default) la sessione vive in localStorage e sopravvive alla
 // chiusura del browser; se disattivato usa sessionStorage e sparisce alla chiusura.
-export const REMEMBER_KEY = 'arbora-remember'
+export const REMEMBER_KEY = 'utree-remember'
 const remember = () => {
   try { return localStorage.getItem(REMEMBER_KEY) !== '0' } catch { return true }
 }

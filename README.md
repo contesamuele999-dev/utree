@@ -1,4 +1,4 @@
-# 🌳 Arbora
+# 🌳 uTree
 
 App di note ad albero per imprenditori. **Vite** (universi) → **Visioni** (mondi/progetti) → **Viste** (i singoli fogli/note).
 
@@ -102,4 +102,4 @@ supabase_schema.sql   schema DB + Row Level Security
 
 ---
 
-Arbora © 2026 — Sviluppata da **Samuele Contessa**.
+uTree © 2026 — Sviluppata da **Samuele Contessa**.

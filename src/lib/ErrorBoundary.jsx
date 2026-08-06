@@ -18,7 +18,7 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(err, info) {
     this.setState({ info })
-    console.error('[Arbora] errore di render:', err, info?.componentStack)
+    console.error('[uTree] errore di render:', err, info?.componentStack)
   }
 
   copia = () => {

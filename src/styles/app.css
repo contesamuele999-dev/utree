@@ -26,7 +26,7 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-/* overflow-x:hidden alla radice: nessuna pagina di Arbora deve poter scorrere in
+/* overflow-x:hidden alla radice: nessuna pagina di uTree deve poter scorrere in
    orizzontale. Bastava un titolo lungo nella barra in alto per far "ballare" di
    lato l'intera app su schermi stretti. */
 html, body, #root { height: 100%; margin: 0; overflow-x: hidden; max-width: 100%; }
@@ -878,7 +878,7 @@ a { color: var(--accent); text-decoration: none; }
   .topbar { padding: 8px 10px; gap: 8px; }
   .brand img, .brand-logo { width: 24px; height: 24px; }
   .brand span { font-size: 16px; }
-  .brand img + span, .brand-logo + span { display: none; }   /* nasconde solo il wordmark "Arbora", non il titolo visione */
+  .brand img + span, .brand-logo + span { display: none; }   /* nasconde solo il wordmark "uTree", non il titolo visione */
   .topbar .spacer { flex: 1 1 auto; }
   .tabs { padding: 3px; gap: 2px; }
   .tab { padding: 6px 9px; font-size: 12px; }
@@ -1149,6 +1149,7 @@ a { color: var(--accent); text-decoration: none; }
   box-shadow: var(--shadow); display: grid; place-items: center; transition: transform .2s;
 }
 .fab.open { transform: rotate(45deg); }
+.fab-plus { width: 30px; height: 30px; display: block; }
 .fab-menu { display: flex; flex-direction: column; gap: 8px; animation: drop .18s ease; }
 .fab-menu button {
   background: var(--panel); border: 1px solid var(--border); color: var(--text);
@@ -1218,6 +1219,7 @@ a { color: var(--accent); text-decoration: none; }
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
   .fab { width: 52px; height: 52px; font-size: 27px; }
+  .fab-plus { width: 27px; height: 27px; }
 }
 
 /* ============================================================

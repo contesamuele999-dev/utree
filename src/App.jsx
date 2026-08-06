@@ -30,8 +30,8 @@ const TABS = [
 ]
 
 // ---- ripresa di sessione: l'app riparte da dove l'hai lasciata ----
-const LAST_TAB = 'arbora-last-tab'
-const LAST_VISTA = 'arbora-last-vista'
+const LAST_TAB = 'utree-last-tab'
+const LAST_VISTA = 'utree-last-vista'
 const lastTab = () => {
   try { const t = localStorage.getItem(LAST_TAB); return TABS.some(x => x.id === t) ? t : 'today' }
   catch { return 'today' }
@@ -183,7 +183,7 @@ export default function App() {
   // Il flag si scrive SOLO a operazione riuscita, così se si è offline si ritenta.
   const manutenzioneToday = useCallback(async (tk, rc) => {
     const oggi = todayKey()
-    const CHIAVE = 'arbora-today-manut'
+    const CHIAVE = 'utree-today-manut'
     if (manutFatta.current === oggi) return
     if (localStorage.getItem(CHIAVE) === oggi) { manutFatta.current = oggi; return }
 
@@ -523,10 +523,10 @@ export default function App() {
   ].filter(Boolean)
 
   useEffect(() => {
-    window.history.pushState({ arbora: true }, '')
+    window.history.pushState({ utree: true }, '')
     const onPop = () => {
       const top = overlaysRef.current[0]
-      if (top) { top(); window.history.pushState({ arbora: true }, '') }
+      if (top) { top(); window.history.pushState({ utree: true }, '') }
       // se non c'è nulla da chiudere lasciamo procedere (comportamento nativo)
     }
     window.addEventListener('popstate', onPop)
@@ -538,7 +538,7 @@ export default function App() {
   // stata consumata: aggiungiamo quindi una voce di history quando si entra in
   // una vista, così il tasto Indietro genera sempre popstate e chiude la vista.
   useEffect(() => {
-    if (vistaAperta) window.history.pushState({ arbora: true, vista: vistaAperta.id }, '')
+    if (vistaAperta) window.history.pushState({ utree: true, vista: vistaAperta.id }, '')
   }, [vistaAperta?.id])
 
   // ---- swipe fra le schede ----
@@ -601,7 +601,7 @@ export default function App() {
 
   const ensureVita = async () => {
     if (defaultVita.current) return defaultVita.current
-    const v = await store.insert('vite', { titolo: 'Arbora', colore: '#1f7a4d', ordine: 0 })
+    const v = await store.insert('vite', { titolo: 'uTree', colore: '#1f7a4d', ordine: 0 })
     defaultVita.current = v
     return v
   }
@@ -855,9 +855,9 @@ export default function App() {
     try {
       await store.update('viste', vistaId, { stage })
     } catch (e) {
-      const map = JSON.parse(localStorage.getItem('arbora-stages') || '{}')
+      const map = JSON.parse(localStorage.getItem('utree-stages') || '{}')
       map[vistaId] = stage
-      localStorage.setItem('arbora-stages', JSON.stringify(map))
+      localStorage.setItem('utree-stages', JSON.stringify(map))
       if (!stageWarned.current) {
         stageWarned.current = true
         alert('Per sincronizzare le fasi sul cloud esegui su Supabase:\nALTER TABLE public.viste ADD COLUMN IF NOT EXISTS stage text DEFAULT \'' + DEFAULT_STAGE + '\';\n(Nel frattempo le fasi sono salvate solo su questo dispositivo.)')
@@ -874,9 +874,9 @@ export default function App() {
     try {
       await store.update('visioni', vis.id, { archiviata })
     } catch (e) {
-      const map = JSON.parse(localStorage.getItem('arbora-archivio') || '{}')
+      const map = JSON.parse(localStorage.getItem('utree-archivio') || '{}')
       if (archiviata) map[vis.id] = true; else delete map[vis.id]
-      localStorage.setItem('arbora-archivio', JSON.stringify(map))
+      localStorage.setItem('utree-archivio', JSON.stringify(map))
       if (!archivioWarned.current) {
         archivioWarned.current = true
         alert('Per sincronizzare l\'archivio sul cloud esegui su Supabase:\nALTER TABLE public.visioni ADD COLUMN IF NOT EXISTS archiviata boolean NOT NULL DEFAULT false;\n(Nel frattempo l\'archivio vale solo su questo dispositivo.)')
@@ -885,12 +885,12 @@ export default function App() {
   }
 
   const withLocalArchivio = (vs) => {
-    const map = JSON.parse(localStorage.getItem('arbora-archivio') || '{}')
+    const map = JSON.parse(localStorage.getItem('utree-archivio') || '{}')
     return vs.map(v => (v.archiviata == null && map[v.id]) ? { ...v, archiviata: true } : v)
   }
 
   const withLocalStages = (vs) => {
-    const map = JSON.parse(localStorage.getItem('arbora-stages') || '{}')
+    const map = JSON.parse(localStorage.getItem('utree-stages') || '{}')
     return vs.map(v => (v.stage == null && map[v.id]) ? { ...v, stage: map[v.id] } : v)
   }
 
@@ -903,9 +903,9 @@ export default function App() {
     try {
       await store.update('viste', vistaId, { pinned })
     } catch (e) {
-      const map = JSON.parse(localStorage.getItem('arbora-pins') || '{}')
+      const map = JSON.parse(localStorage.getItem('utree-pins') || '{}')
       if (pinned) map[vistaId] = true; else delete map[vistaId]
-      localStorage.setItem('arbora-pins', JSON.stringify(map))
+      localStorage.setItem('utree-pins', JSON.stringify(map))
       if (!pinWarned.current) {
         pinWarned.current = true
         alert('Per sincronizzare le viste fissate sul cloud esegui su Supabase:\nALTER TABLE public.viste ADD COLUMN IF NOT EXISTS pinned boolean DEFAULT false;\n(Nel frattempo i "fissati" sono salvati solo su questo dispositivo.)')
@@ -914,7 +914,7 @@ export default function App() {
   }
 
   const withLocalPins = (vs) => {
-    const map = JSON.parse(localStorage.getItem('arbora-pins') || '{}')
+    const map = JSON.parse(localStorage.getItem('utree-pins') || '{}')
     return vs.map(v => (v.pinned == null && map[v.id]) ? { ...v, pinned: true } : v)
   }
 
@@ -1115,7 +1115,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
-        <div className="brand"><BrandLogo /><span>Arbora Notes</span></div>
+        <div className="brand"><BrandLogo /><span>uTree</span></div>
         <div className="spacer" />
         <div className="tabs">
           {TABS.map((t, i) => {
@@ -1196,7 +1196,13 @@ export default function App() {
         )}
         <button className={'fab' + (fabOpen && tab !== 'today' ? ' open' : '')}
           title={tab === 'today' ? 'Aggiungi una task di oggi' : 'Crea'}
-          onClick={() => { if (tab === 'today') addTaskOggi(); else setFabOpen(o => !o) }}>＋</button>
+          onClick={() => { if (tab === 'today') addTaskOggi(); else setFabOpen(o => !o) }}>
+          {/* croce disegnata, non un carattere: i glifi "+" hanno spallature e
+              linea di base asimmetriche e restavano scentrati nel cerchio */}
+          <svg className="fab-plus" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
       {fabOpen && tab !== 'today' && <div className="fab-scrim" onClick={() => setFabOpen(false)} />}
 
@@ -1296,7 +1302,7 @@ export default function App() {
               {!isDemo && <button onClick={() => { signOut(); setMenu(false) }}>Esci ({user.email})</button>}
             </div>
             <div className="copyright" style={{marginTop:16,borderTop:'none'}}>
-              Arbora © {new Date().getFullYear()} — Sviluppata da <b>Samuele Contessa</b>
+              uTree © {new Date().getFullYear()} — Sviluppata da <b>Samuele Contessa</b>
             </div>
           </div>
         </div>
@@ -1448,7 +1454,7 @@ function Empty({ msg }) {
   return <div style={{padding:40,textAlign:'center',color:'var(--text-dim)'}}>{msg}</div>
 }
 
-// Logo Arbora inline: albero con nodi a cerchio, usa le variabili CSS del tema.
+// Logo uTree inline: albero con nodi a cerchio, usa le variabili CSS del tema.
 function BrandLogo() {
   return (
     <svg className="brand-logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

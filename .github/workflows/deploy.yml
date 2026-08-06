@@ -1,4 +1,4 @@
-name: Deploy Arbora to GitHub Pages
+name: Deploy uTree to GitHub Pages
 
 on:
   push:

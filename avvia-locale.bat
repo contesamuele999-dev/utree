@@ -1,12 +1,12 @@
 @echo off
 REM ====================================================
-REM  Arbora - avvio server di sviluppo locale
+REM  uTree - avvio server di sviluppo locale
 REM  Doppio click per lanciare l'app in locale (hot reload)
 REM ====================================================
 cd /d "%~dp0"
 
 echo.
-echo === Avvio Arbora in locale ===
+echo === Avvio uTree in locale ===
 echo.
 
 REM Installa le dipendenze solo la prima volta (se manca node_modules)

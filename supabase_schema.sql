@@ -1,5 +1,5 @@
 -- ============================================================
--- ARBORA - Schema database Supabase
+-- UTREE - Schema database Supabase
 -- Esegui questo nello SQL Editor di Supabase (Dashboard -> SQL).
 -- Modello: vite (universi) > visioni (mondi) > viste (fogli/note)
 -- Ogni utente vede SOLO i propri dati (Row Level Security).

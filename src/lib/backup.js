@@ -13,7 +13,7 @@ export async function exportBackup() {
       opz(store.list('task')), opz(store.list('ricorrenza')), opz(store.list('giorno')),
     ])
     data = {
-      app: 'arbora', version: 2, exportedAt: new Date().toISOString(),
+      app: 'utree', version: 2, exportedAt: new Date().toISOString(),
       vite, visioni, viste, links, task, ricorrenza, giorno,
     }
   } catch (e) {
@@ -22,7 +22,7 @@ export async function exportBackup() {
   }
 
   const json = JSON.stringify(data, null, 2)
-  const filename = `arbora-backup-${new Date().toISOString().slice(0,10)}.json`
+  const filename = `utree-backup-${new Date().toISOString().slice(0,10)}.json`
   const blob = new Blob([json], { type: 'application/json' })
 
   // 1) Su mobile / PWA (dove il download via <a> spesso non parte) usa la condivisione file.
@@ -30,7 +30,7 @@ export async function exportBackup() {
     if (navigator.canShare && typeof File !== 'undefined') {
       const file = new File([blob], filename, { type: 'application/json' })
       if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Backup Arbora' })
+        await navigator.share({ files: [file], title: 'Backup uTree' })
         return
       }
     }
@@ -66,7 +66,8 @@ export async function exportBackup() {
 export async function importBackup(file) {
   const text = await file.text()
   const data = JSON.parse(text)
-  if (data.app !== 'arbora') throw new Error('File non valido (non è un backup Arbora).')
+  // 'arbora' era il nome precedente dell'app: i backup vecchi restano importabili
+  if (data.app !== 'utree' && data.app !== 'arbora') throw new Error('File non valido (non è un backup uTree).')
 
   // mappa vecchi id -> nuovi id, per ricreare i collegamenti
   const map = {}

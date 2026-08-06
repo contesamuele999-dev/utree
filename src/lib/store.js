@@ -1,5 +1,5 @@
 // ============================================================
-// Store dati Arbora
+// Store dati uTree
 // Astrazione che funziona sia con Supabase (cloud sync) sia in
 // modalità DEMO locale (IndexedDB-like via localStorage) quando
 // Supabase non è configurato. Così l'app gira sempre.
@@ -7,7 +7,7 @@
 import { supabase, hasSupabase } from './supabase'
 import { enqueue, isNetworkError, offlineId } from './offline.js'
 
-const LS_KEY = 'arbora-demo-db'
+const LS_KEY = 'utree-demo-db'
 
 // ============================================================
 // Merge a 3 vie dei blocchi (sync multi-dispositivo)
@@ -77,7 +77,7 @@ function seed() {
       { id: v1, visione_id: visId, titolo: 'Idea centrale', livello: 0, parent_id: null, pos_x: 0, pos_y: 0,
         blocchi: [
           { id: uid(), text: '# Idea centrale' },
-          { id: uid(), text: 'Costruire **Arbora**, l\'app di note ad albero.' },
+          { id: uid(), text: 'Costruire **uTree**, l\'app di note ad albero.' },
           { id: uid(), text: 'Vedi i dettagli in [[Strategia]] e [[Roadmap]].' },
         ] },
       { id: v2, visione_id: visId, titolo: 'Strategia', livello: 1, parent_id: v1, pos_x: -180, pos_y: 140,

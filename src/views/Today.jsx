@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { completamento, fatteInFondo, streak, todayKey, parseDay, riepilogoSettimana } from '../lib/today.js'
 import { renderInline } from '../lib/markdown.jsx'
+import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 
 // ============================================================
 // TODAY — le task della giornata.
-// Il livello temporale di Arbora: le viste dicono cosa esiste,
+// Il livello temporale di uTree: le viste dicono cosa esiste,
 // Progress a che punto è, Today cosa tocca oggi.
 // Il tono è deliberatamente gentile: nessun rosso sulle task
 // aperte, nessun contatore che azzera con rimprovero.
@@ -30,7 +31,7 @@ const oraDelGiorno = () => new Date().getHours()
 const SOGLIA_GIORNATA = 10
 
 // preferenza persistente: "sposta in fondo le task completate"
-const PREF_FATTE = 'arbora-today-fatte-fondo'
+const PREF_FATTE = 'utree-today-fatte-fondo'
 
 // Nidificazione: stesse regole delle viste (stesso tetto, stessa larghezza di guida).
 const MAX_INDENT = 6
@@ -244,7 +245,10 @@ export default function Today({
   // --- riordino: handle ⠿ + linea di rilascio. Come nelle viste, lo spostamento
   //     ORIZZONTALE durante il trascinamento cambia anche il livello di rientro. ---
   const dragStartX = useRef(0)
+  const rootRef = useRef(null)
+  const scrollerOf = () => rootRef.current?.closest('.content') || document.scrollingElement
   const onDrop = (target, clientX) => {
+    stopEdgeScroll()
     const step = onIndent ? Math.round(((clientX || dragStartX.current) - dragStartX.current) / INDENT_STEP) : 0
     if (dragId && dragId !== target.id) onReorder?.(dragId, target.id, step)
     else if (dragId === target.id && step !== 0) {
@@ -255,7 +259,7 @@ export default function Today({
   }
 
   return (
-    <div className="today">
+    <div className="today" ref={rootRef}>
       <div className="section-head">
         <h2>Today</h2>
         <span className="crumb">{dataLunga(oggi)}</span>
@@ -305,7 +309,12 @@ export default function Today({
                 + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')
                 + (swipeDx?.id === t.id ? ' swiping' : '')}
               style={swipeDx?.id === t.id ? { transform: `translateX(${swipeDx.dx}px)` } : undefined}
-              onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(t.id) } }}
+              onDragOver={e => {
+                if (!dragId) return
+                e.preventDefault(); setOverId(t.id)
+                // vicino al bordo alto/basso la lista scorre da sola, anche a mouse fermo
+                if (e.clientY) edgeScroll(e.clientY, scrollerOf)
+              }}
               onDragLeave={() => setOverId(id => id === t.id ? null : id)}
               onDrop={e => { e.preventDefault(); onDrop(t, e.clientX) }}
               onPointerDown={e => onRowDown(e, t)}
@@ -331,7 +340,7 @@ export default function Today({
               <span className="drag-handle" title="Trascina per riordinare · ←/→ per nidificare"
                 draggable
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; dragStartX.current = e.clientX; setDragId(t.id) }}
-                onDragEnd={() => { setDragId(null); setOverId(null) }}>⠿</span>
+                onDragEnd={() => { stopEdgeScroll(); setDragId(null); setOverId(null) }}>⠿</span>
 
               {/* tre stati: da fare → a metà → fatta → da fare */}
               <button className={'today-check' + (t.done ? ' done' : t.parziale ? ' mezza' : '')}

@@ -6,6 +6,7 @@ import { STAGES, stageOf } from '../lib/stages.js'
 import { store } from '../lib/store.js'
 import { prepareImage } from '../lib/images.js'
 import * as gcal from '../lib/gcal.js'
+import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -401,13 +402,18 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // fantasma di trascinamento che segue il cursore durante il drag HTML5
   useEffect(() => {
     if (!dragId) return
-    const onOver = (e) => { if (e.clientX || e.clientY) setGhost(g => g ? { ...g, x: e.clientX, y: e.clientY } : g) }
+    const scrollerOf = () => rootRef.current?.closest('.content') || document.scrollingElement || document.documentElement
+    const onOver = (e) => {
+      if (e.clientX || e.clientY) setGhost(g => g ? { ...g, x: e.clientX, y: e.clientY } : g)
+      // avvicinandosi al bordo alto/basso la lista scorre da sola, anche a mouse fermo
+      if (e.clientY) edgeScroll(e.clientY, scrollerOf)
+    }
     document.addEventListener('dragover', onOver)
     // durante il trascinamento consenti di scorrere la lista con la rotellina del mouse.
     // Il contenitore scrollabile è `.content` (l'editor sta dentro), con fallback all'elemento
     // di scroll del documento. Aggiorniamo lo scroll sia sul contenitore sia sul window,
     // perché a seconda del layout può scorrere l'uno o l'altro.
-    const scroller = rootRef.current?.closest('.content') || document.scrollingElement || document.documentElement
+    const scroller = scrollerOf()
     const onWheel = (e) => {
       e.preventDefault()
       const dy = e.deltaY
@@ -415,7 +421,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       window.scrollBy(0, dy)
     }
     window.addEventListener('wheel', onWheel, { passive: false })
-    return () => { document.removeEventListener('dragover', onOver); window.removeEventListener('wheel', onWheel) }
+    return () => { document.removeEventListener('dragover', onOver); window.removeEventListener('wheel', onWheel); stopEdgeScroll() }
   }, [dragId])
 
   const pushUndo = (snapshot) => {
@@ -830,7 +836,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 </style></head><body>
 <h1 class="t">${esc(title || 'Senza titolo')}</h1>
 ${rowsHtml}
-<div class="foot">Arbora — stampato il ${new Date().toLocaleDateString('it-IT')}</div>
+<div class="foot">uTree — stampato il ${new Date().toLocaleDateString('it-IT')}</div>
 </body></html>`
     const w = window.open('', '_blank')
     if (!w) { setToast('Consenti i popup per stampare'); setTimeout(() => setToast(''), 1800); return }
@@ -1211,7 +1217,7 @@ ${rowsHtml}
     applyDrag(id, e.clientX)
     setDragId(null); setDropId(null); setGhost(null)
   }
-  const endDrag = () => { gripHold.current = false; setDragId(null); setDropId(null); setGhost(null) }
+  const endDrag = () => { gripHold.current = false; stopEdgeScroll(); setDragId(null); setDropId(null); setGhost(null) }
 
   // ---- TOUCH: trascina la riga premendo in mezzo ----
   // Tocco+attesa (long-press) al centro della riga → modalità trascinamento:
@@ -1347,14 +1353,10 @@ ${rowsHtml}
     }
     e.preventDefault()
     setGhost(g => (g ? { ...g, x: e.clientX, y: e.clientY } : g))
-    // auto-scroll quando il dito/pennino è vicino al bordo alto/basso dello schermo,
-    // così si può trascinare una riga oltre la porzione di lista visibile (utile su tablet)
-    const scroller = rootRef.current?.closest('.content') || document.scrollingElement
-    if (scroller) {
-      const EDGE = 70, SPEED = 14
-      if (e.clientY < EDGE) scroller.scrollTop -= SPEED
-      else if (e.clientY > window.innerHeight - EDGE) scroller.scrollTop += SPEED
-    }
+    // auto-scroll quando il dito/pennino è vicino al bordo alto/basso della lista:
+    // continua anche a dito fermo, quindi si può trascinare una riga molto oltre la
+    // porzione visibile senza doverla "pompare" avanti e indietro (vedi edgescroll.js)
+    edgeScroll(e.clientY, () => rootRef.current?.closest('.content') || document.scrollingElement)
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.block')
     const overId = el?.getAttribute('data-block-id')
     if (overId && overId !== d.id) { d.over = overId; setDropId(overId) }
@@ -1364,6 +1366,14 @@ ${rowsHtml}
     const d = rowDrag.current
     if (!d) return
     clearTimeout(d.timer); rowDrag.current = null
+    stopEdgeScroll()
+    // con l'auto-scroll il dito può restare fermo mentre la lista scorre: la riga
+    // sotto il dito è cambiata senza altri pointermove, quindi la rileggiamo al rilascio
+    if (d.active) {
+      const el = document.elementFromPoint(e.clientX ?? d.lastX, e.clientY ?? d.lastY)?.closest?.('.block')
+      const overId = el?.getAttribute('data-block-id')
+      d.over = (overId && overId !== d.id) ? overId : null
+    }
     if (d.sel) return   // long-press in selezione: gestito dal timer; il click fa il toggle normale
     if (d.scrolling) {
       rowJustHandled.current = true              // era uno scroll della lista, non un tap
@@ -1405,7 +1415,7 @@ ${rowsHtml}
   const onRowCancel = () => {
     const d = rowDrag.current
     if (!d) return
-    clearTimeout(d.timer); rowDrag.current = null
+    clearTimeout(d.timer); rowDrag.current = null; stopEdgeScroll()
     if (d.active) { setDragId(null); setDropId(null); setGhost(null) }
   }
 

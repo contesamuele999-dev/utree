@@ -6,11 +6,11 @@ export function Privacy() {
       <h1>Informativa sulla Privacy</h1>
       <p><em>Ultimo aggiornamento: giugno 2026</em></p>
 
-      <p>Arbora ("l'App") rispetta la tua privacy. Questa informativa spiega quali dati raccogliamo,
+      <p>uTree ("l'App") rispetta la tua privacy. Questa informativa spiega quali dati raccogliamo,
       come li usiamo e quali sono i tuoi diritti, in conformità al Regolamento (UE) 2016/679 (GDPR).</p>
 
       <h2>1. Titolare del trattamento</h2>
-      <p>Il titolare del trattamento è Samuele Contessa, sviluppatore di Arbora.
+      <p>Il titolare del trattamento è Samuele Contessa, sviluppatore di uTree.
       Per qualsiasi richiesta relativa ai tuoi dati puoi contattare il titolare tramite i recapiti indicati nell'App.</p>
 
       <h2>2. Dati raccolti</h2>
@@ -57,10 +57,10 @@ export function Terms() {
       <h1>Termini e Condizioni d'uso</h1>
       <p><em>Ultimo aggiornamento: giugno 2026</em></p>
 
-      <p>Utilizzando Arbora accetti i presenti Termini. Se non li accetti, ti preghiamo di non utilizzare l'App.</p>
+      <p>Utilizzando uTree accetti i presenti Termini. Se non li accetti, ti preghiamo di non utilizzare l'App.</p>
 
       <h2>1. Oggetto</h2>
-      <p>Arbora è un'applicazione per la creazione e l'organizzazione di note gerarchiche
+      <p>uTree è un'applicazione per la creazione e l'organizzazione di note gerarchiche
       (vite, visioni, viste) con strumenti di mappatura e produttività.</p>
 
       <h2>2. Account</h2>
@@ -80,7 +80,7 @@ export function Terms() {
       mancati guadagni derivanti dall'uso o dall'impossibilità di usare l'App.</p>
 
       <h2>6. Proprietà intellettuale</h2>
-      <p>Il nome "Arbora", il logo, il design e il codice dell'applicazione sono di proprietà di Samuele Contessa
+      <p>Il nome "uTree", il logo, il design e il codice dell'applicazione sono di proprietà di Samuele Contessa
       e protetti dalle leggi sul diritto d'autore.</p>
 
       <h2>7. Legge applicabile</h2>
