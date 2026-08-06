@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // IMPORTANTE per GitHub Pages:
-// se pubblichi su https://<utente>.github.io/arbora/ lascia base = '/arbora/'
+// se pubblichi su https://<utente>.github.io/utree/ lascia base = '/arbora/'
 // se usi un dominio custom o un repo "user.github.io", metti base = '/'
-const base = process.env.VITE_BASE || '/arbora/'
+const base = process.env.VITE_BASE || '/utree/'
 
 export default defineConfig({
   base,
