@@ -25,8 +25,8 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Build
         env:
-          # base path = /<nome-repo>/  (cambia se il repo non si chiama "arbora")
-          VITE_BASE: /arbora/
+          # base path = /<nome-repo>/  (cambia se il repo non si chiama "utree")
+          VITE_BASE: /utree/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}

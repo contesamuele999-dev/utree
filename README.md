@@ -68,16 +68,16 @@ Permette a ogni utente di collegare il **proprio** account Google e sincronizzar
 
 ## Pubblicazione su GitHub Pages
 
-1. Crea un repo su GitHub chiamato **`arbora`** e carica questa cartella.
+1. Crea un repo su GitHub chiamato **`utree`** e carica questa cartella.
 2. **Settings → Secrets and variables → Actions** → aggiungi:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
    - `VITE_GOOGLE_CLIENT_ID` *(solo se usi Google Calendar)*
 3. **Settings → Pages** → *Source: GitHub Actions*.
 4. `git push` sul branch `main`: il workflow [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) builda e pubblica.
-5. L'app sarà su `https://<tuo-utente>.github.io/arbora/`.
+5. L'app sarà su `https://<tuo-utente>.github.io/utree/`.
 
-> Se chiami il repo diversamente da `arbora`, cambia `VITE_BASE` nel workflow (es. `/mio-repo/`).
+> Se chiami il repo diversamente da `utree`, cambia `VITE_BASE` nel workflow (es. `/mio-repo/`).
 > Per un dominio custom o un repo `<utente>.github.io`, imposta `VITE_BASE=/`.
 
 ---

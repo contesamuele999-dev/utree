@@ -26,7 +26,7 @@ git push --force origin main
 echo.
 echo === Fatto! Il remote ora rispecchia il tuo locale. ===
 echo Il sito si aggiorna in 1-2 minuti su:
-echo https://contesamuele999-dev.github.io/arbora/
+echo https://contesamuele999-dev.github.io/utree/
 echo Controlla la tab Actions del repo per lo stato.
 echo.
 :fine
