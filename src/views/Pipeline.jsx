@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { stageOf } from '../lib/stages.js'
+import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 
 // Classe di urgenza di una vista in base alle scadenze delle sue righe:
 // evidenzia con lo sfondo se ha righe scadute / in scadenza oggi / entro 3 giorni.
@@ -118,8 +119,19 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
+  // auto-scorrimento ai bordi mentre si trascina una visione o una vista
+  const rootRef = useRef(null)
+  useEffect(() => {
+    if (!dragVisId && !dragVistaId) return
+    const onOver = (e) => {
+      if (e.clientY) edgeScroll(e.clientY, () => rootRef.current?.closest('.content') || document.scrollingElement)
+    }
+    document.addEventListener('dragover', onOver)
+    return () => { document.removeEventListener('dragover', onOver); stopEdgeScroll() }
+  }, [dragVisId, dragVistaId])
+
   return (
-    <div className="pipe">
+    <div className="pipe" ref={rootRef}>
       <div className="section-head">
         <h2>Pipe</h2>
         <span className="crumb">{visioni.length} visioni · {viste.length} viste</span>

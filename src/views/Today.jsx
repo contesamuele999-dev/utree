@@ -247,6 +247,16 @@ export default function Today({
   const dragStartX = useRef(0)
   const rootRef = useRef(null)
   const scrollerOf = () => rootRef.current?.closest('.content') || document.scrollingElement
+  // Auto-scorrimento ai bordi: l'ascolto è sul documento, non sulle righe. Sopra la
+  // lista ci sono intestazione e riepilogo — puntando lassù nessuna riga riceveva
+  // dragover e la lista non risaliva, mentre verso il basso funzionava.
+  useEffect(() => {
+    if (!dragId) return
+    const onOver = (e) => { if (e.clientY) edgeScroll(e.clientY, scrollerOf) }
+    document.addEventListener('dragover', onOver)
+    return () => { document.removeEventListener('dragover', onOver); stopEdgeScroll() }
+  }, [dragId])
+
   const onDrop = (target, clientX) => {
     stopEdgeScroll()
     const step = onIndent ? Math.round(((clientX || dragStartX.current) - dragStartX.current) / INDENT_STEP) : 0
@@ -309,12 +319,7 @@ export default function Today({
                 + (overId === t.id && dragId && dragId !== t.id ? ' over' : '')
                 + (swipeDx?.id === t.id ? ' swiping' : '')}
               style={swipeDx?.id === t.id ? { transform: `translateX(${swipeDx.dx}px)` } : undefined}
-              onDragOver={e => {
-                if (!dragId) return
-                e.preventDefault(); setOverId(t.id)
-                // vicino al bordo alto/basso la lista scorre da sola, anche a mouse fermo
-                if (e.clientY) edgeScroll(e.clientY, scrollerOf)
-              }}
+              onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(t.id) } }}
               onDragLeave={() => setOverId(id => id === t.id ? null : id)}
               onDrop={e => { e.preventDefault(); onDrop(t, e.clientX) }}
               onPointerDown={e => onRowDown(e, t)}
