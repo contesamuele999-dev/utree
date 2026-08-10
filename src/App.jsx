@@ -56,6 +56,7 @@ export default function App() {
   const [vistaAperta, setVistaAperta] = useState(null)
   const [vistaStack, setVistaStack] = useState([])   // storia delle viste aperte via link/ricerca (per il tasto ←)
   const [jumpText, setJumpText] = useState(null)     // termine cercato: la vista aperta scrolla alla riga che lo contiene
+  const [remoteRev, setRemoteRev] = useState(0)      // sale quando la vista aperta cambia sul cloud: l'editor si ri-sincronizza
   const [focusMode, setFocusMode] = useState(false)
   const [page, setPage] = useState(null)       // 'privacy' | 'terms' | 'profile' | 'stats'
   const [guide, setGuide] = useState(null)     // sezione della guida
@@ -481,7 +482,7 @@ export default function App() {
     if (!user) return
     const maybeReload = () => {
       if (document.visibilityState !== 'visible') return
-      if (vistaAperta) return                     // vista aperta: non disturbare l'editing
+      if (editorEditing) return                   // riga in modifica: non disturbare chi scrive
       if (Date.now() - lastReload.current < 4000) return
       lastReload.current = Date.now()
       reload()
@@ -492,7 +493,20 @@ export default function App() {
       window.removeEventListener('visibilitychange', maybeReload)
       window.removeEventListener('focus', maybeReload)
     }
-  }, [user, reload, vistaAperta])
+  }, [user, reload, editorEditing])
+
+  // La vista APERTA segue le modifiche arrivate dal cloud (fatte su un altro
+  // dispositivo): se i blocchi riletti differiscono da quelli mostrati li adottiamo
+  // e alziamo `remoteRev`, che fa ri-sincronizzare l'editor senza uscire e rientrare.
+  useEffect(() => {
+    if (!vistaAperta) return
+    const fresh = viste.find(v => v.id === vistaAperta.id)
+    if (!fresh || fresh === vistaAperta) return
+    if (fresh.titolo === vistaAperta.titolo
+      && JSON.stringify(fresh.blocchi) === JSON.stringify(vistaAperta.blocchi)) return
+    setVistaAperta(fresh)
+    setRemoteRev(n => n + 1)
+  }, [viste, vistaAperta])
 
   // ripristina lo scroll di Pipe quando si chiude una vista e si torna all'elenco
   useLayoutEffect(() => {
@@ -944,9 +958,10 @@ export default function App() {
 
   // apre una vista partendo dall'elenco (Pipe/Tree/Links/Progress): azzera la storia.
   // Salva lo scroll di Pipe così, al ritorno, si riparte dallo stesso punto.
-  const openFromList = (v) => {
+  // `term` (opzionale) = testo cercato nell'elenco: la vista aperta scrolla alla riga che lo contiene.
+  const openFromList = (v, term = null) => {
     if (tab === 'pipe' && contentRef.current) pipeScrollRef.current = contentRef.current.scrollTop
-    setJumpText(null); setVistaStack([]); setVistaAperta(v)
+    setJumpText(term || null); setVistaStack([]); setVistaAperta(v)
   }
   // naviga a un'altra vista da dentro l'editor (ricerca "vai a"): impila quella corrente.
   // `term` (opzionale) = testo cercato: la vista aperta scrolla alla riga che lo contiene.
@@ -1101,7 +1116,7 @@ export default function App() {
         </div>
         <div className="content" onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
           <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
-            api={editorApi} onEditingChange={setEditorEditing}
+            api={editorApi} onEditingChange={setEditorEditing} remoteRev={remoteRev}
             onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
         </div>
         <SwipeHint hint={swipeHint} />

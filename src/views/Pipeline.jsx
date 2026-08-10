@@ -144,7 +144,7 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
           <span className="pipe-search-ico">🔍</span>
           <input className="pipe-search-input" ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter' && firstResult) { e.preventDefault(); onOpen(firstResult) }
+              if (e.key === 'Enter' && firstResult) { e.preventDefault(); onOpen(firstResult, q) }
               else if (e.key === 'Escape') { if (query) setQuery(''); else e.currentTarget.blur() }
             }}
             placeholder="Cerca viste (titolo, poi contenuto)…" />
@@ -240,7 +240,7 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
                   draggable title="Trascina su un'altra visione per spostarla"
                   onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragVistaId(v.id) }}
                   onDragEnd={() => { setDragVistaId(null); setOverVisId(null) }}
-                  onClick={() => onOpen(v)}>
+                  onClick={() => onOpen(v, q)}>
                   <div className="vista-top">
                     <span className="stage-dot" title={st.label} />
                     <h4>{v.titolo || 'Senza titolo'}</h4>

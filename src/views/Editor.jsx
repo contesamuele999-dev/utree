@@ -99,7 +99,7 @@ function parseIndented(text, base = 0) {
 // Editor della singola VISTA: blocchi markdown, drag&drop (riordino + nidificazione),
 // click=modifica · doppio click=copia · icona cestino=elimina (con recupero 7 giorni),
 // selezione multipla + copia/taglia/incolla di sezioni intere, undo/redo.
-export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday, api, onEditingChange }) {
+export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday, api, onEditingChange, remoteRev = 0 }) {
   const [stagePick, setStagePick] = useState(false)
   const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [title, setTitle] = useState(vista.titolo || '')
@@ -328,7 +328,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     rootRef.current?.focus({ preventScroll: true })
   }, [vista.id])
 
-  // re-sync se cambia la vista aperta (+ pulizia cestino oltre 7 giorni)
+  // re-sync se cambia la vista aperta — o se `remoteRev` sale, cioè quando App ha
+  // riletto dal cloud una versione diversa (modifica fatta su un altro dispositivo)
+  // — più la pulizia del cestino oltre 7 giorni.
   useEffect(() => {
     const b = vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }]
     const cleanTrash = purgeTrash(vista.cestino)
@@ -343,7 +345,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       onChange({ ...vista, blocchi: b, titolo: vista.titolo || '', cestino: cleanTrash })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vista.id])
+  }, [vista.id, remoteRev])
 
   // salvataggio debounced (+ log caratteri scritti). Include sempre titolo e cestino correnti.
   const persist = (nextBlocks, nextTitle = title, nextTrash = trash) => {
@@ -1980,8 +1982,9 @@ ${rowsHtml}
           {(guides[bi] || []).map((g, i) => (
             <span key={i} className={'indent-guide guide-' + g} title={'Livello ' + indent} />
           ))}
-          {/* piega/dispiega i sottorami: compare solo se la riga ne ha */}
-          {nFigli > 0 && (
+          {/* piega/dispiega i sottorami: lo spazio è SEMPRE riservato (classe `empty`
+              quando la riga non ha rami) così il testo resta allineato riga per riga */}
+          {nFigli === 0 ? <span className="row-fold empty" aria-hidden="true" /> : (
             <button className={'row-fold' + (piegata ? ' on' : '')} data-noswipe="" tabIndex={-1}
               title={piegata ? `Mostra i sottorami (${nFigli})` : `Nascondi i sottorami (${nFigli})`}
               aria-label={piegata ? 'Mostra i sottorami' : 'Nascondi i sottorami'}
