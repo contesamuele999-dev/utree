@@ -279,6 +279,25 @@ test('fatte in fondo: ordina i fratelli senza spezzare i rami', () => {
   assert.deepEqual(fatteInFondo(task).map(t => t.id), ['a', 'a2', 'a1', 'c', 'b', 'b1'])
 })
 
+test('fatte in fondo: le a metà stanno fra le da fare e le fatte', () => {
+  const task = [
+    { id: 'mezza', indent: 0, done: false, parziale: true },
+    { id: 'fatta', indent: 0, done: true },
+    { id: 'dafare', indent: 0, done: false },
+  ]
+  assert.deepEqual(fatteInFondo(task).map(t => t.id), ['dafare', 'mezza', 'fatta'])
+})
+
+test('fatte in fondo: un ramo vale quanto il figlio meno avanzato', () => {
+  const task = [
+    { id: 'p', indent: 0, done: true },
+    { id: 'p1', indent: 1, done: false, parziale: true },
+    { id: 'q', indent: 0, done: false, parziale: true },
+  ]
+  // `p` è spuntata ma ha un figlio a metà: non può scendere sotto `q`, che è a metà anch'essa
+  assert.deepEqual(fatteInFondo(task).map(t => t.id), ['p', 'p1', 'q'])
+})
+
 test('fatte in fondo: normalizza rientri impossibili senza perdere task', () => {
   const task = [
     { id: 'a', indent: 2, done: true },

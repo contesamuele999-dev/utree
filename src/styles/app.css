@@ -1314,9 +1314,10 @@ a { color: var(--accent); text-decoration: none; }
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700; color: #06160e;
 }
-/* a metà: attenuata come una fatta, ma senza barrare il testo */
-.today-item.mezza { opacity: .8; }
-.today-item.mezza .today-text { color: var(--text-dim); }
+/* a metà = ancora DA FARE: niente attenuazione (si confondeva con le fatte).
+   Si distingue in positivo, con una barretta verde a sinistra. */
+.today-item.mezza { box-shadow: inset 2px 0 0 var(--green-deep); }
+.today-item.mezza .today-text { color: var(--text); }
 
 .today-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 1.5; cursor: text; word-break: break-word; }
 /* nidificazione in Today: stesse guide ad albero delle viste */

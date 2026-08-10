@@ -19,9 +19,10 @@ export function dayKey(d) {
 }
 export function todayKey() { return dayKey(new Date()) }
 
-// Ordina le task completate in fondo senza spezzare la gerarchia. L'ordinamento
-// avviene fra fratelli a ogni livello: un sotto-albero si muove sempre intero e
-// scende fra i completati solo quando tutte le sue righe sono concluse.
+// Ordina le task per stato senza spezzare la gerarchia: prima le da fare, poi le
+// a metà, in fondo le completate. L'ordinamento avviene fra fratelli a ogni
+// livello: un sotto-albero si muove sempre intero e vale quanto la sua riga meno
+// avanzata, così scende solo quando è concluso davvero.
 // Normalizziamo anche eventuali rientri impossibili (per esempio una prima riga
 // a livello 2), così dati vecchi o arrivati da due dispositivi non si agganciano
 // per errore al ramo precedente.
@@ -45,13 +46,18 @@ export function fatteInFondo(task = [], maxIndent = 6) {
     stack[depth] = nodo
   }
 
+  // tre scaglioni, non due: da fare (0) → a metà (1) → fatta (2). Senza il gradino
+  // di mezzo una task appena iniziata scendeva in mezzo alle chiuse e le task ancora
+  // da fare finivano sotto di lei. Un ramo non può valere più del suo figlio meno
+  // avanzato: scende solo quando è concluso davvero, sotto-task comprese.
+  const rangoDi = (t) => t.done ? 2 : t.parziale ? 1 : 0
   const ordina = (nodi) => nodi
     .map((nodo, indice) => {
       nodo.figli = ordina(nodo.figli)
-      const chiuso = !!nodo.task.done && nodo.figli.every(figlio => figlio.chiuso)
-      return { ...nodo, chiuso, indice }
+      const rango = Math.min(rangoDi(nodo.task), ...nodo.figli.map(f => f.rango))
+      return { ...nodo, rango, indice }
     })
-    .sort((a, b) => Number(a.chiuso) - Number(b.chiuso) || a.indice - b.indice)
+    .sort((a, b) => a.rango - b.rango || a.indice - b.indice)
 
   const out = []
   const visita = (nodi) => nodi.forEach(nodo => {
