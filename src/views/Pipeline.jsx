@@ -144,8 +144,12 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
           <span className="pipe-search-ico">🔍</span>
           <input className="pipe-search-input" ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter' && firstResult) { e.preventDefault(); onOpen(firstResult, q) }
-              else if (e.key === 'Escape') { if (query) setQuery(''); else e.currentTarget.blur() }
+              // stopPropagation OBBLIGATORIO: l'evento nativo continua a salire fino a
+              // window DOPO che React ha già montato l'editor della vista aperta, e il
+              // suo listener globale lo leggerebbe come "Invio a vuoto" creando una riga
+              // in fondo (che poi si mette in modifica e trascina lo scroll a fine vista).
+              if (e.key === 'Enter' && firstResult) { e.preventDefault(); e.stopPropagation(); onOpen(firstResult, q) }
+              else if (e.key === 'Escape') { e.stopPropagation(); if (query) setQuery(''); else e.currentTarget.blur() }
             }}
             placeholder="Cerca viste (titolo, poi contenuto)…" />
           {query && <button className="pipe-search-clear" title="Pulisci" onClick={() => setQuery('')}>✕</button>}

@@ -82,6 +82,7 @@ export default function App() {
   const sessioneRipresa = useRef(false) // la vista dell'ultima sessione è già stata riaperta?
   const contentRef = useRef(null)       // contenitore scrollabile delle schede (Pipe/Tree/…)
   const pipeScrollRef = useRef(0)       // scroll di Pipe salvato all'apertura di una vista, ripristinato al ritorno
+  const vistaScroll = useRef(new Map()) // vistaId -> scrollTop dentro l'editor: tornando indietro si riparte da dov'eri
   const baseBlocchi = useRef({})        // { vistaId: blocchi } = ultimo stato cloud noto, per il merge multi-dispositivo
   // Visione di SISTEMA che raccoglie i template: nascosta ovunque (griglia, mappa, elenco).
   // Serve perché nello schema ogni template deve avere una visione: così i template
@@ -498,15 +499,18 @@ export default function App() {
   // La vista APERTA segue le modifiche arrivate dal cloud (fatte su un altro
   // dispositivo): se i blocchi riletti differiscono da quelli mostrati li adottiamo
   // e alziamo `remoteRev`, che fa ri-sincronizzare l'editor senza uscire e rientrare.
+  // Mentre una riga è IN MODIFICA non si adotta nulla: alzare `remoteRev` rimonta
+  // l'editor, che perde riga in modifica, focus e scroll (si finiva a scrivere nella
+  // barra di ricerca). L'effetto rigira appena l'editing finisce.
   useEffect(() => {
-    if (!vistaAperta) return
+    if (!vistaAperta || editorEditing) return
     const fresh = viste.find(v => v.id === vistaAperta.id)
     if (!fresh || fresh === vistaAperta) return
     if (fresh.titolo === vistaAperta.titolo
       && JSON.stringify(fresh.blocchi) === JSON.stringify(vistaAperta.blocchi)) return
     setVistaAperta(fresh)
     setRemoteRev(n => n + 1)
-  }, [viste, vistaAperta])
+  }, [viste, vistaAperta, editorEditing])
 
   // ripristina lo scroll di Pipe quando si chiude una vista e si torna all'elenco
   useLayoutEffect(() => {
@@ -514,6 +518,15 @@ export default function App() {
       contentRef.current.scrollTop = pipeScrollRef.current
     }
   }, [vistaAperta, page, tab])
+
+  // ripristina lo scroll DENTRO una vista: tornando indietro (←, swipe, wikilink)
+  // si riparte dal punto in cui l'avevi lasciata, non dall'inizio.
+  // ponytail: le immagini che caricano dopo possono spostare l'altezza; se capita,
+  // ri-applicare lo scroll al load delle immagini.
+  useLayoutEffect(() => {
+    if (!vistaAperta || !contentRef.current) return
+    contentRef.current.scrollTop = vistaScroll.current.get(vistaAperta.id) || 0
+  }, [vistaAperta?.id])
 
   // ---- tasto INDIETRO (mobile): chiude l'overlay in cima invece di uscire dall'app ----
   const overlaysRef = useRef([])
@@ -932,6 +945,11 @@ export default function App() {
     return vs.map(v => (v.pinned == null && map[v.id]) ? { ...v, pinned: true } : v)
   }
 
+  // Fotografa lo scroll della vista aperta: va chiamato PRIMA di cambiare vista.
+  const salvaScrollVista = () => {
+    if (vistaAperta && contentRef.current) vistaScroll.current.set(vistaAperta.id, contentRef.current.scrollTop)
+  }
+
   const openByName = async (name) => {
     let target = viste.find(v => (v.titolo || '').toLowerCase() === name.toLowerCase())
     if (!target) {
@@ -945,6 +963,7 @@ export default function App() {
       }
     }
     // apertura via wikilink: registra la vista corrente per poter tornare indietro
+    salvaScrollVista()
     if (vistaAperta && vistaAperta.id !== target.id) setVistaStack(s => [...s, vistaAperta])
     setVistaAperta(target)
   }
@@ -967,11 +986,13 @@ export default function App() {
   // `term` (opzionale) = testo cercato: la vista aperta scrolla alla riga che lo contiene.
   const pushVista = (v, term = null) => {
     setJumpText(term || null)
+    salvaScrollVista()
     setVistaAperta(cur => { if (cur && cur.id !== v.id) setVistaStack(s => [...s, cur]); return v })
   }
   // tasto ← / back: se sei arrivato qui da un link torna alla vista precedente, altrimenti chiudi
   const closeVista = () => {
     setJumpText(null)
+    salvaScrollVista()
     setVistaStack(s => {
       if (s.length) { setVistaAperta(s[s.length - 1]); return s.slice(0, -1) }
       setVistaAperta(null); return s
@@ -1042,7 +1063,7 @@ export default function App() {
     const j = i + dir
     return (j >= 0 && j < sibs.length) ? sibs[j] : null
   }
-  const openAdjacentVista = (dir) => { const t = adjacentVista(dir); if (t) setVistaAperta(t) }
+  const openAdjacentVista = (dir) => { const t = adjacentVista(dir); if (t) { salvaScrollVista(); setVistaAperta(t) } }
   const onEditorTouchStart = (e) => {
     if (e.touches.length !== 1 || e.target.closest('textarea, input, [data-noswipe]')) { editSwipe.current = null; return }
     const t = e.touches[0]
@@ -1114,7 +1135,7 @@ export default function App() {
           <button className="iconbtn" title="Guida" onClick={() => setGuide('editor')}>?</button>
           <button className="iconbtn" title="Focus" onClick={() => setFocusMode(f => !f)}>{focusMode ? '🔅' : '🎯'}</button>
         </div>
-        <div className="content" onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
+        <div className="content" ref={contentRef} onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
           <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
             api={editorApi} onEditingChange={setEditorEditing} remoteRev={remoteRev}
             onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
