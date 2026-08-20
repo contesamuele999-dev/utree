@@ -108,6 +108,12 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === 'Escape' && query) {   // Esc fuori dal campo: svuota comunque la ricerca
+        setQuery('')
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
       if (e.key.length === 1) {
         setQuery(query + e.key)   // append al testo corrente
         requestAnimationFrame(() => searchRef.current?.focus())
