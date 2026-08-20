@@ -634,6 +634,9 @@ export default function App() {
     if (next >= 0 && next < TABS.length) changeTab(TABS[next].id, dx < 0 ? 1 : -1)
   }
 
+  const saveChain = useRef({})
+  const saveSeq = useRef({})   // numero dell'ultimo salvataggio richiesto per vista
+
   if (loading) return <div style={{display:'grid',placeItems:'center',height:'100dvh'}}>Caricamento…</div>
   if (!user) return <Auth />
 
@@ -841,8 +844,6 @@ export default function App() {
   // dalla stessa `base` (la seconda parte prima che la prima aggiorni la base): il
   // merge a 3 vie vedeva la riga solo nel cloud, la credeva creata su un altro
   // dispositivo e la RESUSCITAVA subito dopo la cancellazione.
-  const saveChain = useRef({})
-  const saveSeq = useRef({})   // numero dell'ultimo salvataggio richiesto per vista
 
   const saveVista = (updated) => {
     // 1) mirror SINCRONO in locale: sopravvive a refresh/chiusura anche se il cloud fallisce.
