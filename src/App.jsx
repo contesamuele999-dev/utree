@@ -399,7 +399,18 @@ export default function App() {
       // genera l'istanza di oggi se la regola la prevede
       const oggi = todayKey()
       const { daCreare } = pianificaRicorrenti({ regole: [salvata], task, oggi, maxIndietro: 0 })
-      if (daCreare.length) {
+      // Se la regola nasce da una task già presente in Today ("Rendi ricorrente"),
+      // quella task DIVENTA l'istanza di oggi. Prima se ne creava una seconda
+      // identica accanto: la ricorrente sembrava duplicarsi.
+      const daAdottare = r.daTask
+        ? task.find(t => t.id === r.daTask && t.giorno === oggi && !t.ricorrenza_id
+          && (t.text || '').trim() === dati.text)
+        : null
+      if (daCreare.length && daAdottare) {
+        const patch = { ricorrenza_id: salvata.id, origin_giorno: daAdottare.origin_giorno || oggi }
+        setTask(ts => ts.map(t => t.id === daAdottare.id ? { ...t, ...patch } : t))
+        await store.update('task', daAdottare.id, patch)
+      } else if (daCreare.length) {
         const nuove = await store.insertMany('task', daCreare)
         if (nuove.length) setTask(ts => [...ts, ...nuove])
       }
@@ -826,7 +837,14 @@ export default function App() {
     })
   }
 
-  const saveVista = async (updated) => {
+  // Una scrittura cloud per volta PER VISTA. Due salvataggi sovrapposti partivano
+  // dalla stessa `base` (la seconda parte prima che la prima aggiorni la base): il
+  // merge a 3 vie vedeva la riga solo nel cloud, la credeva creata su un altro
+  // dispositivo e la RESUSCITAVA subito dopo la cancellazione.
+  const saveChain = useRef({})
+  const saveSeq = useRef({})   // numero dell'ultimo salvataggio richiesto per vista
+
+  const saveVista = (updated) => {
     // 1) mirror SINCRONO in locale: sopravvive a refresh/chiusura anche se il cloud fallisce.
     //    Registra anche la BASE (ultimo stato cloud noto) così un eventuale ri-flush di questa
     //    entry dirty userà il merge a 3 vie e non resusciterà righe eliminate su un altro device.
@@ -836,17 +854,33 @@ export default function App() {
     const nowIso = new Date().toISOString()
     setViste(vs => vs.map(v => v.id === updated.id ? { ...v, ...updated, updated_at: nowIso } : v))
     setVistaAperta(va => (va && va.id === updated.id) ? { ...va, ...updated, updated_at: nowIso } : va)
-    // 3) salvataggio cloud con MERGE per riga: rilegge la versione cloud e fonde i
-    //    blocchi per id, così le modifiche fatte in contemporanea su un altro
-    //    dispositivo non vengono sovrascritte. (best-effort, fallback se manca `cestino`)
+    // 3) salvataggio cloud, in coda dietro all'eventuale salvataggio già in volo
+    //    per questa vista (vedi `saveChain`).
+    const seq = saveSeq.current[updated.id] = (saveSeq.current[updated.id] || 0) + 1
+    const prec = saveChain.current[updated.id] || Promise.resolve()
+    const p = prec.then(() => salvaSulCloud(updated, seq))
+    saveChain.current[updated.id] = p.catch(() => {})
+    return p
+  }
+
+  // Salvataggio cloud con MERGE per riga: rilegge la versione cloud e fonde i
+  // blocchi per id, così le modifiche fatte in contemporanea su un altro
+  // dispositivo non vengono sovrascritte. (best-effort, fallback se manca `cestino`)
+  // La `base` si legge QUI, non prima: dentro la coda è già quella aggiornata dal
+  // salvataggio precedente.
+  const salvaSulCloud = async (updated, seq = 0) => {
     const base = baseBlocchi.current[updated.id]
     const patch = { titolo: updated.titolo, blocchi: updated.blocchi }
     if (updated.cestino !== undefined && !cestinoDisabled()) patch.cestino = updated.cestino
     const applyMerged = (saved) => {
-      // allinea base + UI al risultato del merge (può contenere righe di un altro dispositivo)
+      // allinea base + UI al risultato del merge (può contenere righe di un altro dispositivo).
+      // La UI la tocca solo l'ULTIMO salvataggio richiesto: un salvataggio più vecchio che
+      // atterra dopo rimetterebbe a schermo righe già cancellate da quello nuovo.
       const mb = saved?.blocchi
+      const ultimo = seq === (saveSeq.current[updated.id] || seq)
       if (Array.isArray(mb)) {
         baseBlocchi.current[updated.id] = mb
+        if (!ultimo) return
         setViste(vs => vs.map(v => v.id === updated.id ? { ...v, blocchi: mb } : v))
         setVistaAperta(va => (va && va.id === updated.id) ? { ...va, blocchi: mb } : va)
       } else {
@@ -1186,7 +1220,7 @@ export default function App() {
               onDelete={deleteTask} onReorder={reorderTask} onOpenOrigine={openOrigineTask}
               onAccettaProposta={accettaProposta}
               onApriRicorrenti={() => setRicorrentiOpen({})}
-              onRendiRicorrente={(t) => setRicorrentiOpen({ iniziale: t.text || '' })}
+              onRendiRicorrente={(t) => setRicorrentiOpen({ iniziale: t.text || '', daTask: t.id })}
               onChiudiGiornata={chiudiGiornata} />
           )}
           {tab === 'pipe' && (
@@ -1247,7 +1281,8 @@ export default function App() {
       {ricorrentiOpen && (
         <Ricorrenti regole={regole} iniziale={ricorrentiOpen.iniziale}
           tenuta={tenutaRicorrenti(task, regole)}
-          onSave={salvaRegola} onDelete={eliminaRegola}
+          onSave={(r) => salvaRegola(r.id ? r : { ...r, daTask: ricorrentiOpen.daTask })}
+          onDelete={eliminaRegola}
           onClose={() => setRicorrentiOpen(null)} />
       )}
       {prompt && <NamePrompt data={prompt} onClose={() => setPrompt(null)} />}

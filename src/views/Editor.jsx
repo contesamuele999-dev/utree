@@ -7,6 +7,7 @@ import { store } from '../lib/store.js'
 import { prepareImage } from '../lib/images.js'
 import * as gcal from '../lib/gcal.js'
 import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
+import { dettaturaDisponibile, startDettatura, stopDettatura } from '../lib/dictation.js'
 
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -129,6 +130,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [menuId, setMenuId] = useState(null)           // id della riga con il menu azioni (⋮) aperto su mobile
   const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
   const [collapsed, setCollapsed] = useState(() => new Set())   // righe coi sottorami piegati (nascosti)
+  const [dettando, setDettando] = useState(null)                // id della riga in dettatura vocale (null = spenta)
   const [ancoraAttiva, setAncoraAttiva] = useState(null)        // ancora (titolo) in cima allo schermo
   const stickyRef = useRef(null)                        // gruppo ancorato in alto: serve a misurarne l'ingombro
   const anchorBarRef = useRef(null)                     // barra delle ancore (scorrimento orizzontale delle chip)
@@ -146,6 +148,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const prevChars = useRef(totalChars(vista.blocchi))
   const pending = useRef(null)           // { blocks, title, trash } da salvare al volo se si esce
   const rootRef = useRef(null)           // contenitore della vista: riceve il focus all'apertura
+  const pasteOneLine = useRef(false)     // Ctrl+Shift+V: il prossimo incolla resta su UNA riga
+  const dettaSink = useRef(null)         // funzione (id, frase) sempre aggiornata: la usa il callback del microfono
+  const micHold = useRef(false)          // pulsante microfono premuto: il blur non deve chiudere la riga
 
   useEffect(() => { if (editing) lastEdit.current = editing }, [editing])
 
@@ -454,6 +459,21 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // keyboard shortcuts undo/redo + copia righe selezionate
   useEffect(() => {
     const h = (e) => {
+      // Ctrl+Shift+V: segna l'incolla che sta per arrivare come "una riga sola".
+      // Non si fa preventDefault: l'evento `paste` deve partire lo stesso.
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        pasteOneLine.current = true
+        setTimeout(() => { pasteOneLine.current = false }, 1000)   // se il paste non arriva, il flag scade
+        return
+      }
+      // Ctrl+Shift+D = dettatura vocale sulla riga in modifica (o l'ultima toccata)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault()
+        if (dettando) { stopDettatura(); setDettando(null); return }
+        const id = editing || lastEdit.current || blocks[blocks.length - 1]?.id
+        if (id) { setEditing(id); toggleDettatura(id) }
+        return
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo() }
       // Ctrl+S in selezione con righe di UNA sola sezione → seleziona tutta la sezione (escluso il padre);
@@ -573,6 +593,45 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     flashRefs(text, next)
   }
 
+  // ---- DETTATURA VOCALE (🎤 / Ctrl+Shift+D) ---------------------------------
+  // Le frasi riconosciute si accodano alla riga in modifica. Il callback del
+  // microfono passa da `dettaSink`, che punta sempre alla versione fresca di
+  // questa funzione: altrimenti dopo la prima frase scriverebbe su blocchi vecchi.
+  dettaSink.current = (id, frase) => {
+    const b = blocks.find(x => x.id === id)
+    if (!b) return
+    const testo = b.text ? b.text.replace(/\s+$/, '') + ' ' + frase : frase
+    setText(id, testo)
+  }
+  const toggleDettatura = (id) => {
+    if (dettando) { stopDettatura(); setDettando(null); return }
+    if (!dettaturaDisponibile()) { avvisa('Dettatura non supportata da questo browser'); return }
+    const ok = startDettatura({
+      onText: (frase) => dettaSink.current?.(id, frase),
+      onEnd: () => setDettando(null),
+      onError: (err) => {
+        setDettando(null)
+        avvisa(err === 'not-allowed' ? 'Microfono negato' : 'Dettatura interrotta')
+      },
+    })
+    if (ok) setDettando(id); else avvisa('Dettatura non disponibile')
+  }
+  // uscendo dalla vista il microfono non resta acceso
+  useEffect(() => () => stopDettatura(), [])
+
+  // ---- INCOLLA SU UNA RIGA SOLA (Ctrl+Shift+V) ------------------------------
+  // Il testo multilinea diventa una frase unica, inserita al punto del cursore.
+  const pasteInline = (b, el, text) => {
+    const una = text.replace(/\s+/g, ' ').trim()
+    if (!una) return
+    const s = el.selectionStart ?? el.value.length
+    const e = el.selectionEnd ?? s
+    pendingCaret.current = s + una.length
+    logPasteChars(una.length)
+    setText(b.id, el.value.slice(0, s) + una + el.value.slice(e))
+    setToast('Incollata 1 riga'); setTimeout(() => setToast(''), 1300)
+  }
+
   // Evidenzia temporaneamente le righe richiamate da #n mentre si scrive una formula.
   const flashRefs = (text, arr = blocks) => {
     const t = text || ''
@@ -634,7 +693,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // Incolla "libero": quando NON si sta modificando una riga specifica (nessun blocco in edit),
   // Ctrl+V in qualunque punto della vista crea comunque nuove righe, in fondo alla vista.
   const pasteAtEnd = (text) => {
-    let parts = parseIndented(text, 0)
+    let parts = pasteOneLine.current
+      ? [{ text: text.replace(/\s+/g, ' ').trim(), indent: 0 }].filter(p => p.text)
+      : parseIndented(text, 0)
     while (parts.length && parts[parts.length - 1].text.trim() === '') parts.pop()
     if (!parts.length) return
     const made = parts.map(p => ({ id: uid(), text: p.text, indent: p.indent }))
@@ -657,6 +718,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       if (!text.trim()) return
       e.preventDefault()
       pasteAtEnd(text)
+      pasteOneLine.current = false
     }
     document.addEventListener('paste', handler)
     return () => document.removeEventListener('paste', handler)
@@ -1893,6 +1955,8 @@ ${rowsHtml}
             <li className="grp"><b className="hint-cat">Testo</b> <span><code>Ctrl+B</code> = grassetto · <code>Ctrl+I</code> = corsivo</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+M</code> o <b>AA</b> = MAIUSCOLO</span></li>
             <li><b className="hint-cat" /> <span><code>/</code> = scorciatoie data/ora</span></li>
+            <li><b className="hint-cat" /> <span><code>Ctrl+⇧+V</code> = incolla su <b>una riga sola</b> (normale <code>Ctrl+V</code> = una riga per capo)</span></li>
+            <li><b className="hint-cat" /> <span><b>🎤</b> o <code>Ctrl+⇧+D</code> = dettatura vocale sulla riga in modifica</span></li>
 
             <li className="grp"><b className="hint-cat">Formule</b> <span>inizia con <code>=</code> per calcolare (es. <code>=2+3*4</code>, <code>=sqrt(9)</code>). Richiama altre righe con <code>#n</code>: <code>=#1+#2</code> somma i valori delle righe 1 e 2</span></li>
 
@@ -2017,6 +2081,14 @@ ${rowsHtml}
               onPointerDown={e => onGripDown(e, b)} onPointerMove={onRowMove}
               onPointerUp={onRowUp} onPointerCancel={onRowCancel}>⠿</span>
           )}
+          {editing === b.id && dettaturaDisponibile() && (
+            <button className={'iconbtn mini' + (dettando === b.id ? ' on' : '')} data-noswipe=""
+              title={dettando === b.id ? 'Ferma la dettatura (Ctrl+Shift+D)' : 'Detta con la voce (Ctrl+Shift+D)'}
+              aria-pressed={dettando === b.id}
+              onMouseDown={e => e.preventDefault()}
+              onPointerDown={() => { micHold.current = true }}
+              onClick={() => { micHold.current = false; toggleDettatura(b.id) }}>{dettando === b.id ? '⏹' : '🎤'}</button>
+          )}
           {editing === b.id ? (
             <div className="row-edit" data-noswipe=""
               onPointerDown={e => onEditSwipeDown(e, b)} onPointerMove={onEditSwipeMove}
@@ -2032,13 +2104,16 @@ ${rowsHtml}
               onBlur={() => {
                 // maniglia ⠿ premuta: non è "ho finito di scrivere", è "sto spostando
                 // la riga". Restituiamo il fuoco alla casella invece di chiudere.
-                if (gripHold.current) { requestAnimationFrame(() => editRef.current?.focus({ preventScroll: true })); return }
+                if (gripHold.current || micHold.current) { requestAnimationFrame(() => editRef.current?.focus({ preventScroll: true })); return }
                 setEditing(null); setSlash(null)
               }}
               onPaste={e => {
                 const text = e.clipboardData?.getData('text') || ''
+                const unaRiga = pasteOneLine.current
+                pasteOneLine.current = false
                 if (!text) return
-                if (text.includes('\n')) { e.preventDefault(); pasteMultiline(b, text) }
+                if (unaRiga && text.includes('\n')) { e.preventDefault(); pasteInline(b, e.target, text) }
+                else if (text.includes('\n')) { e.preventDefault(); pasteMultiline(b, text) }
                 else logPasteChars(text.length)   // incolla su una riga sola: lascia fare il browser, registra solo i caratteri
               }}
               onKeyDown={e => {
