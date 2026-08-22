@@ -100,11 +100,19 @@ function parseIndented(text, base = 0) {
 // Editor della singola VISTA: blocchi markdown, drag&drop (riordino + nidificazione),
 // click=modifica · doppio click=copia · icona cestino=elimina (con recupero 7 giorni),
 // selezione multipla + copia/taglia/incolla di sezioni intere, undo/redo.
-export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday, api, onEditingChange, remoteRev = 0 }) {
+export default function Editor({ vista, onChange, onWikilink, focusMode, allViste = [], onSetStage, onClose, jumpTo, onSaveTemplate, onSendToToday, api, onEditingChange, remoteRev = 0, readOnly = false }) {
+  // SOLA LETTURA: la vista appartiene a un progetto che ti è stato condiviso
+  // "solo per visibilità". Si legge, si cerca, si naviga — non si scrive.
+  const bloccato = !!readOnly
   const [stagePick, setStagePick] = useState(false)
-  const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
+  const [blocks, setBlocksRaw] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [title, setTitle] = useState(vista.titolo || '')
-  const [trash, setTrash] = useState(purgeTrash(vista.cestino))
+  const [trash, setTrashRaw] = useState(purgeTrash(vista.cestino))
+  // In sola lettura il contenuto non cambia MAI da dentro l'editor: filtriamo qui,
+  // in un punto solo, invece di ricordarsene in ognuna delle venti azioni di scrittura.
+  // (i setter "Raw" restano per il ricaricamento dalla vista, che deve sempre passare)
+  const setBlocks = (v) => { if (!bloccato) setBlocksRaw(v) }
+  const setTrash = (v) => { if (!bloccato) setTrashRaw(v) }
   const [editing, setEditing] = useState(null)     // id del blocco in edit
   const [dragId, setDragId] = useState(null)
   const [dropId, setDropId] = useState(null)
@@ -230,6 +238,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 
   // imposta o rimuove la scadenza di una riga ('' = rimuovi)
   const setDue = (id, due) => {
+    if (bloccato) return   // scadenze: toccano la riga e Google Calendar
     const prev = blocks.find(b => b.id === id)
     const next = blocks.map(b => b.id === id ? { ...b, due: due || undefined } : b)
     commit(next)
@@ -287,7 +296,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // `testiPuliti` (facoltativo) = testo già ripulito per riga, usato da /oggi
   // che deve anche togliere il token dal testo.
   const spostaInToday = (targets, testiPuliti = {}) => {
-    if (!onSendToToday || !targets.length) return
+    if (bloccato || !onSendToToday || !targets.length) return
     const giorno = oggiKey()
     const daPortare = targets
       .map(b => ({ b, text: (testiPuliti[b.id] ?? b.text ?? '').replace(/[#*`>]/g, '').trim() }))
@@ -319,7 +328,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 
   // imposta la stessa scadenza su tutte le righe selezionate ('' = rimuovi)
   const setDueMany = (due) => {
-    if (!selected.size) return
+    if (bloccato || !selected.size) return
     const targets = blocks.filter(b => selected.has(b.id))
     const next = blocks.map(b => selected.has(b.id) ? { ...b, due: due || undefined } : b)
     commit(next)
@@ -339,9 +348,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   useEffect(() => {
     const b = vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }]
     const cleanTrash = purgeTrash(vista.cestino)
-    setBlocks(b)
+    setBlocksRaw(b)
     setTitle(vista.titolo || '')
-    setTrash(cleanTrash)
+    setTrashRaw(cleanTrash)
     setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
     setSlash(null); setMenuId(null); setRowSheet(null); setCollapsed(new Set())
     prevChars.current = totalChars(vista.blocchi)
@@ -354,6 +363,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 
   // salvataggio debounced (+ log caratteri scritti). Include sempre titolo e cestino correnti.
   const persist = (nextBlocks, nextTitle = title, nextTrash = trash) => {
+    if (bloccato) return   // sola lettura: non si salva niente, nemmeno in locale
     // SICUREZZA ANTI-PERDITA: scrivi SUBITO e in modo SINCRONO su localStorage, a ogni battuta.
     cacheVistaLocal(vista.id, { titolo: nextTitle, blocchi: nextBlocks, cestino: nextTrash })
     setSaveState('saving')
@@ -438,6 +448,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   }
 
   const commit = (next, { undo = true } = {}) => {
+    if (bloccato) return
     if (undo) pushUndo(blocks)
     setBlocks(next)
     persist(next, title, trash)
@@ -653,6 +664,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   }
 
   const addBlock = (afterId = null, text = '') => {
+    if (bloccato) return
     const src = afterId != null ? blocks.find(b => b.id === afterId) : blocks[blocks.length - 1]
     const nb = { id: uid(), text, indent: src?.indent || 0 }
     let next
@@ -667,6 +679,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 
   // Nuova riga PRIMA di tutte le altre (il ＋ in cima alla vista).
   const addBlockAtStart = () => {
+    if (bloccato) return
     const nb = { id: uid(), text: '', indent: 0 }
     commit([nb, ...blocks])
     setEditing(nb.id)
@@ -760,7 +773,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   }
 
   // ---- immagini allegate alle righe: upload su Supabase Storage (o base64 in demo) ----
-  const openImagePicker = (id) => { imgTargetId.current = id; imgInputRef.current?.click() }
+  const openImagePicker = (id) => { if (bloccato) return; imgTargetId.current = id; imgInputRef.current?.click() }
   const onImageChosen = async (file) => {
     const id = imgTargetId.current
     if (!file || !id || !file.type?.startsWith('image/')) return
@@ -941,6 +954,7 @@ ${rowsHtml}
     } catch { return null }
   }
   const activateBlock = (b, e) => {
+    if (bloccato) return   // sola lettura: il tocco non apre la modifica (i link restano cliccabili)
     if (rowJustHandled.current) { rowJustHandled.current = false; return }  // veniamo da un drag/swipe della riga
     const cx = e?.clientX, cy = e?.clientY   // dove hai premuto (per il caret all'apertura)
     // Shift+click in selezione (da PC) = seleziona l'INTERVALLO dalla riga ancora (ultima
@@ -1507,7 +1521,7 @@ ${rowsHtml}
   }
   const onEditSwipeEnd = () => { editSwipe.current = null }
 
-  const titleChange = (v) => { setTitle(v); persist(blocks, v, trash) }
+  const titleChange = (v) => { if (bloccato) return; setTitle(v); persist(blocks, v, trash) }
 
   // ---- grassetto / corsivo: avvolge la selezione del textarea (Ctrl+B / Ctrl+I) ----
   const applyWrap = (el, id, mark) => {
@@ -1816,8 +1830,15 @@ ${rowsHtml}
       <div className="editor-sticky" ref={stickyRef}>
       <div className="editor-head">
         <input className="editor-title" value={title} placeholder="Titolo della vista…"
+          readOnly={bloccato}
           size={Math.min(Math.max((title.length || 18) + 1, 4), 38)}
-          onChange={e => titleChange(e.target.value)} />
+          onChange={e => titleChange(e.target.value)}
+          onKeyDown={e => {
+            // Esc (o Invio) esce dal titolo salvandolo subito, senza annullare nulla
+            if (e.key === 'Escape' || e.key === 'Enter') {
+              e.preventDefault(); e.stopPropagation(); flush(); e.currentTarget.blur()
+            }
+          }} />
         {/* spinge fase + stato salvataggio contro il bordo destro: il titolo respira
             a sinistra, gli indicatori stanno sempre nello stesso angolo */}
         <div className="spacer" />
@@ -1844,6 +1865,11 @@ ${rowsHtml}
             )}
           </div>
         )}
+        {bloccato && (
+          <span className="ro-badge" title="Progetto condiviso solo per visibilità: puoi leggerlo, non modificarlo">
+            👁 sola lettura
+          </span>
+        )}
         <span className={'save-state ' + saveState} title={
           saveState === 'saved' ? 'Salvato nel cloud' :
           saveState === 'local' ? 'Salvato su questo dispositivo (cloud non raggiungibile)' :
@@ -1857,6 +1883,7 @@ ${rowsHtml}
 
       {!focusMode && (
         <>
+        {!bloccato && (
         <div className="toolbar" data-noswipe="" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()}>
           <button className={'iconbtn' + (showHints ? ' on' : '')} title="Mostra/nascondi i suggerimenti"
             onClick={() => setShowHints(s => !s)}>?</button>
@@ -1883,18 +1910,22 @@ ${rowsHtml}
             }}>🧩</button>
           )}
         </div>
+        )}
 
-        {/* Riga azioni: copia foglio · selezione · incolla · cestino */}
+        {/* Riga azioni: copia foglio · selezione · incolla · cestino.
+            In sola lettura restano solo le azioni che non toccano niente. */}
         <div className="toolbar toolbar-2" data-noswipe="" onPointerDown={e => e.preventDefault()} onMouseDown={e => e.preventDefault()}>
           {!selectMode ? (
             <>
               <button className="pillbtn" title="Copia tutto il foglio" onClick={copySheet}>⧉ Copia foglio</button>
               <button className="pillbtn" title="Stampa la vista (struttura ad albero, formato eco)" onClick={printSheet}>🖨 Stampa</button>
               <button className="pillbtn" title="Seleziona righe per copiarle/tagliarle/ri-tabularle" onClick={() => { setSelectMode(true); setEditing(null) }}>☑ Seleziona</button>
-              {clipCount > 0 && (
+              {clipCount > 0 && !bloccato && (
                 <button className="pillbtn" title="Incolla la sezione copiata in fondo alla vista" onClick={pasteSection}>📌 Incolla ({clipCount})</button>
               )}
-              <button className={'pillbtn' + (showTrash ? ' on' : '')} title="Righe eliminate (ultimi 7 giorni)" onClick={() => setShowTrash(s => !s)}>🗑 Cestino{trash.length ? ` (${trash.length})` : ''}</button>
+              {!bloccato && (
+                <button className={'pillbtn' + (showTrash ? ' on' : '')} title="Righe eliminate (ultimi 7 giorni)" onClick={() => setShowTrash(s => !s)}>🗑 Cestino{trash.length ? ` (${trash.length})` : ''}</button>
+              )}
             </>
           ) : (
             <>
@@ -1902,11 +1933,13 @@ ${rowsHtml}
               <button className="pillbtn" title="Seleziona tutte le righe" onClick={selectAll}>☑ Tutte</button>
               <button className="pillbtn" title="Seleziona tutta la sezione (escluso il ramo padre)" onClick={selectSection}>⤵ Sezione</button>
               <button className="pillbtn" title="Copia la sezione (mantiene i livelli)" onClick={copySection}>⧉ Copia</button>
-              <button className="pillbtn" title="Taglia la sezione (va nel cestino)" onClick={cutSection}>✂ Taglia</button>
-              <button className="pillbtn" title="Unisci le righe selezionate in una sola riga"
-                onClick={mergeSelected} disabled={selected.size < 2}>⇲ Unisci</button>
-              <button className="pillbtn" title="Incolla dopo la riga selezionata" onClick={pasteSection} disabled={!clipCount}>📌 Incolla{clipCount ? ` (${clipCount})` : ''}</button>
-              <button className="pillbtn" title="Imposta la scadenza per le righe selezionate" onClick={() => setBulkDue(true)}>📅 Scadenza</button>
+              {!bloccato && <button className="pillbtn" title="Taglia la sezione (va nel cestino)" onClick={cutSection}>✂ Taglia</button>}
+              {!bloccato && (
+                <button className="pillbtn" title="Unisci le righe selezionate in una sola riga"
+                  onClick={mergeSelected} disabled={selected.size < 2}>⇲ Unisci</button>
+              )}
+              {!bloccato && <button className="pillbtn" title="Incolla dopo la riga selezionata" onClick={pasteSection} disabled={!clipCount}>📌 Incolla{clipCount ? ` (${clipCount})` : ''}</button>}
+              {!bloccato && <button className="pillbtn" title="Imposta la scadenza per le righe selezionate" onClick={() => setBulkDue(true)}>📅 Scadenza</button>}
               <button className="pillbtn danger" title="Chiudi selezione" onClick={exitSelect}>✕</button>
             </>
           )}
@@ -2015,7 +2048,7 @@ ${rowsHtml}
       {/* ＋ SOPRA la prima riga: l'unico punto d'inserimento che i ＋ fra le righe
           non possono coprire. Senza, per scrivere in cima bisognava creare una riga
           e poi trascinarla su. */}
-      {!selectMode && !focusMode && (
+      {!selectMode && !focusMode && !bloccato && (
         <button className="row-add-between at-start" data-noswipe="" tabIndex={-1}
           title="Inserisci una riga in cima" aria-label="Inserisci una riga in cima"
           onClick={() => addBlockAtStart()}>
@@ -2070,7 +2103,7 @@ ${rowsHtml}
               resta visibile e cliccabile anche mentre scrivi nella riga */}
           {b.check && (
             <label className="row-check" data-noswipe="" title={b.done ? 'Fatta — clicca per riaprirla' : 'Da fare — clicca quando è fatta'}>
-              <input type="checkbox" checked={!!b.done} onChange={() => toggleDone(b.id)}
+              <input type="checkbox" checked={!!b.done} disabled={bloccato} onChange={() => toggleDone(b.id)}
                 aria-label={b.done ? 'Segna come da fare' : 'Segna come completata'} />
               <span className="today-box" />
             </label>
@@ -2136,7 +2169,11 @@ ${rowsHtml}
                   if (suggestions.length) applyLink(suggestions[0])
                   else addBlock(b.id)
                 }
-                else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(null) }
+                else if (e.key === 'Escape') {
+                  // Esc esce dalla riga SALVANDO: il salvataggio in sospeso (debounce 400ms)
+                  // viene mandato subito, così l'edit non resta appeso se si chiude la vista.
+                  e.preventDefault(); e.stopPropagation(); flush(); setEditing(null)
+                }
                 else if (e.key === 'Backspace' && b.text === '') { e.preventDefault(); deleteBlock(b.id) }
                 // frecce su/giù: se il cursore è al bordo della riga, salta alla riga adiacente
                 else if (e.key === 'ArrowUp' && el.selectionStart === 0 && el.selectionStart === el.selectionEnd) {
@@ -2200,7 +2237,7 @@ ${rowsHtml}
             <span className="gcal-badge" title="Sincronizzato su Google Calendar">📅</span>
           )}
           <span className={'copytap' + (flash === b.id ? ' copied-flash' : '')}>{flash === b.id ? 'copiato!' : ''}</span>
-          {!selectMode && (
+          {!selectMode && !bloccato && (
             <>
               {/* su mobile le azioni della riga stanno dietro a un menu ⋮ (occupano meno spazio);
                   su desktop restano allineate in riga (vedi .row-actions{display:contents}) */}
@@ -2233,7 +2270,7 @@ ${rowsHtml}
             </>
           )}
         </div>
-        {!selectMode && !focusMode && (
+        {!selectMode && !focusMode && !bloccato && (
           <button className="row-add-between" data-noswipe="" tabIndex={-1}
             title="Inserisci una riga qui" aria-label="Inserisci una riga qui"
             onClick={() => addBlock(b.id)}>

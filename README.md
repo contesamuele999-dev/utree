@@ -16,6 +16,7 @@ PWA installabile su PC, tablet e smartphone. React + Vite + Supabase, deploy su 
 - **Modalità Focus + Pomodoro** — timer 25+5 editabile fino a 50+10, con suggerimenti di pausa.
 - **Login multi-utente** — ogni utente vede solo i propri dati (Supabase + Row Level Security).
 - **Google Calendar** — ogni utente collega il proprio account Google dal **Profilo**; le righe con scadenza si sincronizzano come eventi (create/aggiornate/eliminate insieme alla scadenza).
+- **Progetti in team** — condividi una visione con un team, scegliendo se gli altri possono solo vederla o anche modificarla. Il permesso si imposta per tutto il team e, quando serve, **per singola persona**. Menu ☰ → *Team e condivisioni*.
 - **Modalità DEMO** — senza Supabase l'app gira in locale (dati nel browser), utile per provarla subito.
 
 ---
@@ -34,7 +35,11 @@ Apri l'indirizzo mostrato. Senza configurare Supabase parte in **modalità DEMO*
 ## Setup Supabase (login + sync cloud)
 
 1. Crea un progetto su [supabase.com](https://supabase.com).
-2. **SQL Editor** → incolla ed esegui il contenuto di [`supabase_schema.sql`](./supabase_schema.sql).
+2. **SQL Editor** → incolla ed esegui il contenuto di [`supabase_schema.sql`](./supabase_schema.sql),
+   poi le migrazioni che ti servono (una volta sola ciascuna, sono idempotenti):
+   `migrazione_today.sql`, `migrazione_stage.sql`, `migrazione_cestino.sql`,
+   `migrazione_immagini.sql`, `migrazione_pin.sql`, `migrazione_today_indent.sql`
+   e — per i progetti condivisi in team — [`migrazione_team.sql`](./migrazione_team.sql).
 3. **Project Settings → API**: copia *Project URL* e *anon public key*.
 4. Crea un file `.env` (vedi `.env.example`):
 
@@ -91,6 +96,7 @@ src/
   pages/      Auth · Legal (privacy + termini)
   App.jsx     orchestratore (mondi, viste, hyperlink, focus)
 supabase_schema.sql   schema DB + Row Level Security
+migrazione_team.sql   team, membri e condivisione dei progetti (RLS estesa)
 ```
 
 ---

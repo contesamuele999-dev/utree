@@ -372,7 +372,11 @@ export default function Today({
                       } else if (e.key === 'Tab') {
                         // Tab / ⇧Tab = rientra / riduci, come nelle viste
                         e.preventDefault(); rientra(t, e.shiftKey ? -1 : 1)
-                      } else if (e.key === 'Escape') { setEditId(null); setEditText('') }
+                      } else if (e.key === 'Escape') {
+                        // Esc NON annulla: conferma quello che hai scritto ed esce dalla riga.
+                        // (stessa regola in tutte le sezioni: uscire da una riga = salvarla)
+                        e.preventDefault(); e.stopPropagation(); confermaEdit()
+                      }
                     }} />
                   {suggestions.length > 0 && (
                     <div className="link-suggest">
@@ -438,7 +442,13 @@ export default function Today({
             onChange={e => setNuova(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter') { e.preventDefault(); aggiungi() }
-              else if (e.key === 'Escape') { setNuova(''); e.currentTarget.blur() }
+              else if (e.key === 'Escape') {
+                // anche qui Esc salva: se hai scritto qualcosa la task viene aggiunta,
+                // altrimenti si esce e basta dal campo.
+                e.preventDefault(); e.stopPropagation()
+                if (nuova.trim()) aggiungi(undefined, false)
+                e.currentTarget.blur()
+              }
             }} />
           {nuova && <button className="add-btn mini" onClick={() => aggiungi()}>Aggiungi</button>}
         </li>

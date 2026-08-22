@@ -9,6 +9,9 @@ import { enqueue, isNetworkError, offlineId } from './offline.js'
 
 const LS_KEY = 'utree-demo-db'
 
+// Tabelle prive della colonna `ordine`: si ordinano solo per data di creazione.
+const SENZA_ORDINE = new Set(['links', 'team', 'team_membro', 'condivisione'])
+
 // ============================================================
 // Merge a 3 vie dei blocchi (sync multi-dispositivo)
 // Se lo stesso account modifica una vista da più dispositivi, l'ultimo
@@ -106,9 +109,10 @@ export const store = {
     if (hasSupabase) {
       let q = supabase.from(table).select('*')
       for (const [k, v] of Object.entries(filter)) q = q.eq(k, v)
-      // NB: la tabella `links` NON ha la colonna `ordine` -> ordiniamo solo per created_at,
-      // altrimenti Supabase risponde "column links.ordine does not exist" e la lettura fallisce.
-      const orderCols = table === 'links' ? ['created_at'] : ['ordine', 'created_at']
+      // NB: alcune tabelle NON hanno la colonna `ordine` (links e quelle del team)
+      // -> per loro ordiniamo solo per created_at, altrimenti Supabase risponde
+      // "column ... does not exist" e la lettura fallisce.
+      const orderCols = SENZA_ORDINE.has(table) ? ['created_at'] : ['ordine', 'created_at']
       for (const c of orderCols) q = q.order(c, { ascending: true })
       const { data, error } = await q
       if (error) throw error

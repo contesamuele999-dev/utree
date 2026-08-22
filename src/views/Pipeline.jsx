@@ -26,7 +26,12 @@ function urgentCls(v) {
 // e viste (card neutre con indicatore colore della fase).
 // Ricerca: priorità ai titoli delle viste, poi al contenuto.
 // ============================================================
-export default function Pipeline({ visioni, viste, query: queryProp, onQueryChange, onOpen, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin, onToggleArchivio }) {
+export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: queryProp, onQueryChange, onOpen, onAddVisione, onAddVista, onRenameVisione, onRecolorVisione, onDeleteVista, onDeleteVisione, onReorderVisioni, onMoveVistaToVisione, onTogglePin, onToggleArchivio }) {
+  // Permesso sul progetto: 'proprietario' (il tuo) | 'modifica' | 'vista' (condiviso).
+  // Senza mappa dei permessi è tutto tuo, come prima dei team.
+  const permessoDi = (vis) => permessi?.get(vis.id) || 'proprietario'
+  const mioProgetto = (vis) => permessoDi(vis) === 'proprietario'
+  const scrivibile = (vis) => permessoDi(vis) !== 'vista'
   // la ricerca è controllata dall'alto (App) così non si azzera aprendo/chiudendo una vista;
   // fallback a stato locale se il componente viene usato senza le prop.
   const [queryLocal, setQueryLocal] = useState('')
@@ -219,27 +224,48 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
             setDragVisId(null); setDragVistaId(null); setOverVisId(null); setReorderOver(null)
           }}>
           <header className="vision-head">
-            {!q && (
+            {!q && mioProgetto(vis) && (
               <span className="drag-handle" title="Trascina per riordinare"
                 draggable
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragVisId(vis.id) }}
                 onDragEnd={() => { reorderRef.current = null; setDragVisId(null); setReorderOver(null) }}>⠿</span>
             )}
-            <label className="vision-swatch" title="Colore della visione">
-              <input type="color" value={vis.colore || '#2e9e63'}
-                onChange={e => onRecolorVisione(vis, e.target.value)} />
-            </label>
+            {mioProgetto(vis) ? (
+              <label className="vision-swatch" title="Colore della visione">
+                <input type="color" value={vis.colore || '#2e9e63'}
+                  onChange={e => onRecolorVisione(vis, e.target.value)} />
+              </label>
+            ) : (
+              <span className="vision-swatch static" title="Progetto condiviso con te"
+                style={{ background: vis.colore || '#2e9e63' }} />
+            )}
             <h3>{vis.titolo}</h3>
-            <button className="iconbtn mini" title="Rinomina" onClick={() => onRenameVisione(vis)}>✎</button>
-            <button className={'iconbtn mini' + (vis.archiviata ? ' on' : '')}
-              title={vis.archiviata
-                ? 'Togli dall’archivio: tornerà in cima e proporrà di nuovo le sue scadenze in Today'
-                : 'Archivia: scende in fondo e smette di proporre task in Today (resta cercabile)'}
-              onClick={() => onToggleArchivio?.(vis)}>📦</button>
-            <button className="iconbtn mini danger" title="Elimina visione (e tutte le sue viste)" onClick={() => onDeleteVisione(vis)}>🗑</button>
+            {/* progetto di qualcun altro: si dice subito cosa ci puoi fare */}
+            {!mioProgetto(vis) && (
+              <button className={'share-badge' + (scrivibile(vis) ? ' can-edit' : '')}
+                title={scrivibile(vis)
+                  ? 'Progetto condiviso con te: puoi modificarlo'
+                  : 'Progetto condiviso con te solo per visibilità: puoi leggerlo, non modificarlo'}
+                onClick={() => onApriTeam?.()}>
+                {scrivibile(vis) ? '👥 condiviso · modifica' : '👁 condiviso · sola visibilità'}
+              </button>
+            )}
+            {mioProgetto(vis) && (
+              <>
+                <button className="iconbtn mini" title="Rinomina" onClick={() => onRenameVisione(vis)}>✎</button>
+                <button className="iconbtn mini" title="Condividi questo progetto con un team"
+                  onClick={() => onApriTeam?.()}>👥</button>
+                <button className={'iconbtn mini' + (vis.archiviata ? ' on' : '')}
+                  title={vis.archiviata
+                    ? 'Togli dall’archivio: tornerà in cima e proporrà di nuovo le sue scadenze in Today'
+                    : 'Archivia: scende in fondo e smette di proporre task in Today (resta cercabile)'}
+                  onClick={() => onToggleArchivio?.(vis)}>📦</button>
+                <button className="iconbtn mini danger" title="Elimina visione (e tutte le sue viste)" onClick={() => onDeleteVisione(vis)}>🗑</button>
+              </>
+            )}
             <div className="spacer" />
             <span className="crumb">{q ? `${list.length}/${total}` : total} viste</span>
-            <button className="add-btn mini" onClick={() => onAddVista(vis.id)}>＋ Vista</button>
+            {scrivibile(vis) && <button className="add-btn mini" onClick={() => onAddVista(vis.id)}>＋ Vista</button>}
           </header>
 
           <div className="vista-grid">
@@ -247,18 +273,23 @@ export default function Pipeline({ visioni, viste, query: queryProp, onQueryChan
               const st = stageOf(v)
               return (
                 <article key={v.id} className={'vista-card' + (dragVistaId === v.id ? ' dragging' : '') + (v.pinned ? ' pinned' : '') + urgentCls(v)} style={{ '--stage': st.color }}
-                  draggable title="Trascina su un'altra visione per spostarla"
+                  draggable={scrivibile(vis)}
+                  title={scrivibile(vis) ? "Trascina su un'altra visione per spostarla" : 'Apri (sola lettura)'}
                   onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragVistaId(v.id) }}
                   onDragEnd={() => { setDragVistaId(null); setOverVisId(null) }}
                   onClick={() => onOpen(v, q)}>
                   <div className="vista-top">
                     <span className="stage-dot" title={st.label} />
                     <h4>{v.titolo || 'Senza titolo'}</h4>
-                    <button className={'iconbtn mini pin-btn' + (v.pinned ? ' on' : '')}
-                      title={v.pinned ? 'Rimuovi da fissate' : 'Fissa in cima alla visione'}
-                      onClick={e => { e.stopPropagation(); onTogglePin?.(v) }}>📌</button>
-                    <button className="iconbtn mini danger" title="Elimina vista"
-                      onClick={e => { e.stopPropagation(); onDeleteVista(v) }}>🗑</button>
+                    {scrivibile(vis) && (
+                      <>
+                        <button className={'iconbtn mini pin-btn' + (v.pinned ? ' on' : '')}
+                          title={v.pinned ? 'Rimuovi da fissate' : 'Fissa in cima alla visione'}
+                          onClick={e => { e.stopPropagation(); onTogglePin?.(v) }}>📌</button>
+                        <button className="iconbtn mini danger" title="Elimina vista"
+                          onClick={e => { e.stopPropagation(); onDeleteVista(v) }}>🗑</button>
+                      </>
+                    )}
                   </div>
                   <p className="vista-preview">{preview(v) || 'Vuota…'}</p>
                 </article>

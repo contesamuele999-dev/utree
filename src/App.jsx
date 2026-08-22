@@ -11,6 +11,7 @@ import Links from './views/Links.jsx'
 import Progress from './views/Progress.jsx'
 import Stats from './views/Stats.jsx'
 import Profile from './views/Profile.jsx'
+import Team from './views/Team.jsx'
 import Guide from './views/Guide.jsx'
 import { Privacy, Terms } from './pages/Legal.jsx'
 import { THEMES, applyTheme, loadTheme } from './lib/themes.js'
@@ -20,6 +21,7 @@ import { DEFAULT_STAGE } from './lib/stages.js'
 import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino } from './lib/localcache.js'
 import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount, purgeLocalData } from './lib/offline.js'
 import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
+import { caricaTeam, collegaInviti, mappaPermessi, puoModificare } from './lib/team.js'
 
 const TABS = [
   { id: 'today', label: 'Today' },
@@ -50,6 +52,9 @@ export default function App() {
   const [task, setTask] = useState([])          // Today: le task di tutti i giorni (serve lo storico per lo streak)
   const [regole, setRegole] = useState([])      // Today: regole delle task ricorrenti
   const [giorni, setGiorni] = useState([])      // Today: il rito serale, una riga per data
+  // TEAM: gruppi, membri e condivisioni dei progetti (vedi lib/team.js).
+  // `disponibile:false` = la migrazione dei team non è ancora stata eseguita.
+  const [teamDati, setTeamDati] = useState({ teams: [], membri: [], condivisioni: [], disponibile: false })
   const [ricorrentiOpen, setRicorrentiOpen] = useState(null)   // null | { iniziale?: string } pannello regole
   const todayWarned = useRef(false)             // avviso "esegui la migrazione" una volta sola
   const manutFatta = useRef(null)               // giorno per cui rollover+ricorrenti sono già girati
@@ -76,6 +81,7 @@ export default function App() {
   // `!user`. Dichiararne uno più in basso significa eseguirne un numero diverso
   // prima e dopo il login: React lo rifiuta (errore #310) e smonta tutto.
   const archivioWarned = useRef(false)
+  const invitiCollegati = useRef(false)   // gli inviti si agganciano una volta per sessione
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
   const [inCoda, setInCoda] = useState(() => outboxCount())
   const editorApi = useRef({})          // ponte verso l'Editor (per il tasto indietro: esci dall'editing riga)
@@ -174,7 +180,17 @@ export default function App() {
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
     flushDirtyToCloud(store)   // ri-spedisce in background ciò che non era stato salvato sul cloud
     manutenzioneToday(allTask, allRegole)
+    // TEAM: gira per ultimo e non blocca niente. Alla prima lettura della sessione
+    // aggancia gli inviti ricevuti per email all'account collegato adesso.
+    if (!invitiCollegati.current) {
+      invitiCollegati.current = true
+      try { await collegaInviti() } catch { /* best-effort */ }
+    }
+    setTeamDati(await caricaTeam())
   }, [])
+
+  // ricarica solo team/condivisioni (dopo una modifica fatta dalla pagina Team)
+  const ricaricaTeam = useCallback(async () => { setTeamDati(await caricaTeam()) }, [])
 
   // ---- TODAY: manutenzione di inizio giornata ---------------------------------
   // Gira PIGRA alla prima apertura di ogni giorno (niente cron):
@@ -637,8 +653,36 @@ export default function App() {
   const saveChain = useRef({})
   const saveSeq = useRef({})   // numero dell'ultimo salvataggio richiesto per vista
 
+  // ---- PERMESSI dei progetti condivisi ---------------------------------------
+  // visione_id -> 'proprietario' | 'modifica' | 'vista'. I progetti che gli altri
+  // ti hanno condiviso arrivano insieme ai tuoi (è la RLS a farli passare): qui si
+  // decide cosa puoi farci. Nessun accesso = non compaiono nemmeno nelle letture.
+  const permessi = useMemo(
+    () => mappaPermessi(visioni, { userId: user?.id, ...teamDati }),
+    [visioni, teamDati, user?.id]
+  )
+  const permessoDi = useCallback((visioneId) => permessi.get(visioneId) || 'proprietario', [permessi])
+  // una vista è modificabile se lo è il progetto che la contiene
+  const vistaModificabile = useCallback(
+    (v) => puoModificare(permessoDi(v?.visione_id)),
+    [permessoDi]
+  )
+
   if (loading) return <div style={{display:'grid',placeItems:'center',height:'100dvh'}}>Caricamento…</div>
   if (!user) return <Auth />
+
+  // Progetti condivisi "solo per visibilità": qui si fermano le azioni di scrittura.
+  // I pulsanti sono già nascosti in Pipe — questa è la seconda rete (la terza è la RLS).
+  const bloccatoSoloLettura = (visioneId) => {
+    if (puoModificare(permessoDi(visioneId))) return false
+    alert('Questo progetto è condiviso solo per visibilità: non puoi modificarlo.')
+    return true
+  }
+  const nonSeiProprietario = (vis) => {
+    if (permessoDi(vis?.id) === 'proprietario') return false
+    alert('Solo chi possiede il progetto può rinominarlo, archiviarlo o eliminarlo.')
+    return true
+  }
 
   const ensureVita = async () => {
     if (defaultVita.current) return defaultVita.current
@@ -678,6 +722,7 @@ export default function App() {
   const addVista = ({ visioneId, parent = null, open = false } = {}) => {
     const vid = visioneId || parent?.visione_id || visioni[0]?.id
     if (!vid) { alert('Crea prima una visione.'); return }
+    if (bloccatoSoloLettura(vid)) return
     setPrompt({ titolo: 'Nuova vista', label: 'Titolo della vista', valore: '', onOk: async (nome) => {
       const v = await store.insert('viste', {
         visione_id: vid, titolo: nome, blocchi: [{ id: 'b1', text: '' }],
@@ -747,6 +792,7 @@ export default function App() {
   }
 
   const renameVisione = (visione) => {
+    if (nonSeiProprietario(visione)) return
     setPrompt({ titolo: 'Rinomina visione', label: 'Nome della visione', valore: visione.titolo, onOk: async (nome) => {
       await store.update('visioni', visione.id, { titolo: nome })
       setVisioni(prev => prev.map(v => v.id === visione.id ? { ...v, titolo: nome } : v))
@@ -754,6 +800,7 @@ export default function App() {
   }
 
   const recolorVisione = async (visione, colore) => {
+    if (nonSeiProprietario(visione)) return
     await store.update('visioni', visione.id, { colore })
     setVisioni(prev => prev.map(v => v.id === visione.id ? { ...v, colore } : v))
   }
@@ -778,6 +825,7 @@ export default function App() {
 
   // ---- Eliminazione rapida (con conferma) ----
   const deleteVista = (vista) => {
+    if (bloccatoSoloLettura(vista.visione_id)) return
     setConfirm({
       titolo: 'Eliminare la vista?',
       messaggio: `"${vista.titolo || 'Senza titolo'}" verrà eliminata definitivamente.`,
@@ -798,6 +846,7 @@ export default function App() {
   }
 
   const deleteVisione = (vis) => {
+    if (nonSeiProprietario(vis)) return
     // I template esistono INDIPENDENTEMENTE dalle visioni: eliminando una visione NON
     // vanno cancellati. Le viste reali si eliminano; i template (nuovi già nella visione
     // di sistema, oppure vecchi ancora dentro questa visione) vengono spostati/tenuti nel
@@ -846,6 +895,9 @@ export default function App() {
   // dispositivo e la RESUSCITAVA subito dopo la cancellazione.
 
   const saveVista = (updated) => {
+    // Progetto in sola visibilità: non si scrive niente, nemmeno in cache locale.
+    // (silenzioso: l'editor è già aperto in sola lettura, non serve un avviso)
+    if (!vistaModificabile(updated)) return Promise.resolve('local')
     // 1) mirror SINCRONO in locale: sopravvive a refresh/chiusura anche se il cloud fallisce.
     //    Registra anche la BASE (ultimo stato cloud noto) così un eventuale ri-flush di questa
     //    entry dirty userà il merge a 3 vie e non resusciterà righe eliminate su un altro device.
@@ -910,6 +962,7 @@ export default function App() {
   }
 
   const setStage = async (vistaId, stage) => {
+    if (bloccatoSoloLettura(viste.find(v => v.id === vistaId)?.visione_id)) return
     setViste(vs => vs.map(v => v.id === vistaId ? { ...v, stage } : v))
     // aggiorna anche la vista aperta: senza questo, il pill della fase nella
     // schermata di modifica restava con l'etichetta vecchia (sembrava "non funzionare").
@@ -931,6 +984,7 @@ export default function App() {
   //      Come per fasi e pin: se la colonna `archiviata` non esiste ancora sul cloud,
   //      si ripiega su questo dispositivo con un avviso una tantum. ----
   const toggleArchivioVisione = async (vis) => {
+    if (nonSeiProprietario(vis)) return
     const archiviata = !vis.archiviata
     setVisioni(vs => vs.map(v => v.id === vis.id ? { ...v, archiviata } : v))
     try {
@@ -960,6 +1014,7 @@ export default function App() {
   //      con la colonna `pinned`; se la colonna non esiste ancora, fallback su questo
   //      dispositivo (localStorage) con avviso una tantum + script SQL da eseguire. ----
   const setPinned = async (vistaId, pinned) => {
+    if (bloccatoSoloLettura(viste.find(v => v.id === vistaId)?.visione_id)) return
     setViste(vs => vs.map(v => v.id === vistaId ? { ...v, pinned } : v))
     setVistaAperta(va => (va && va.id === vistaId) ? { ...va, pinned } : va)
     try {
@@ -1063,6 +1118,7 @@ export default function App() {
   }
 
   const reparent = async (childId, parentId) => {
+    if (bloccatoSoloLettura(viste.find(v => v.id === childId)?.visione_id)) return
     const parent = viste.find(v => v.id === parentId)
     const newLevel = parent ? (parent.livello || 0) + 1 : 0
     await store.update('viste', childId, { parent_id: parentId, livello: newLevel })
@@ -1078,6 +1134,9 @@ export default function App() {
 
   // sposta una vista sotto un'altra VISIONE (diventa vista radice di quella visione)
   const moveVistaToVisione = async (childId, visioneId) => {
+    // spostare una vista tocca due progetti: servono i permessi su entrambi
+    if (bloccatoSoloLettura(viste.find(v => v.id === childId)?.visione_id)) return
+    if (bloccatoSoloLettura(visioneId)) return
     const badLinks = links.filter(l => l.a_vista === childId && l.tipo === 'maggiore').map(l => l.id)
     try {
       await store.update('viste', childId, { visione_id: visioneId, parent_id: null, livello: 0 })
@@ -1127,6 +1186,7 @@ export default function App() {
 
   const visteConFasi = withLocalPins(withLocalStages(viste))
   const visioniConArchivio = withLocalArchivio(visioni)
+
   // Proposte di oggi: righe con scadenza ≤ oggi non ancora prese in carico.
   // Escluse template, cestino e visioni archiviate (vedi lib/today.js).
   const proposteOggi = proposte({ viste, visioni: visioniConArchivio, task, oggi: todayKey() })
@@ -1138,7 +1198,7 @@ export default function App() {
     const v = viste.find(x => x.id === t.vista_id)
     return { ...t, vistaTitolo: v?.titolo, visione_id: v?.visione_id, orfana: !v }
   })
-  const pageTitles = { privacy: 'Privacy', terms: 'Termini e condizioni', profile: 'Profilo', stats: 'Statistiche' }
+  const pageTitles = { privacy: 'Privacy', terms: 'Termini e condizioni', profile: 'Profilo', stats: 'Statistiche', team: 'Team e condivisioni' }
 
   // ---------- Pagine a schermo intero (profilo, statistiche, legali) ----------
   if (page) {
@@ -1153,6 +1213,10 @@ export default function App() {
           {page === 'privacy' && <Privacy />}
           {page === 'terms' && <Terms />}
           {page === 'profile' && <Profile />}
+          {page === 'team' && (
+            <Team visioni={visioniConArchivio} userId={user?.id} isDemo={isDemo}
+              dati={teamDati} onRefresh={ricaricaTeam} />
+          )}
           {page === 'stats' && <Stats viste={visteConFasi} task={task} regole={regole} giorni={giorni} />}
         </div>
       </div>
@@ -1172,6 +1236,7 @@ export default function App() {
         </div>
         <div className="content" ref={contentRef} onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
           <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
+            readOnly={!vistaModificabile(vistaAperta)}
             api={editorApi} onEditingChange={setEditorEditing} remoteRev={remoteRev}
             onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
         </div>
@@ -1226,6 +1291,7 @@ export default function App() {
           )}
           {tab === 'pipe' && (
             <Pipeline visioni={visioniConArchivio} viste={visteConFasi}
+              permessi={permessi} onApriTeam={() => setPage('team')}
               query={pipeQuery} onQueryChange={setPipeQuery}
               onOpen={openFromList}
               onAddVisione={addVisione} onAddVista={(visioneId) => addVista({ visioneId })}
@@ -1237,7 +1303,7 @@ export default function App() {
           )}
           {tab === 'tree' && (
             (visioni.length || viste.length)
-              ? <Tree viste={visteConFasi} visioni={visioni} onOpen={openFromList}
+              ? <Tree viste={visteConFasi} visioni={visioni} onOpen={openFromList} modificabile={vistaModificabile}
                   onAddChild={(parent) => addVista({ parent })}
                   onAddToVisione={(visioneId) => addVista({ visioneId })}
                   onReparent={reparent} onMoveToVisione={moveVistaToVisione} onQuickSave={saveVista}
@@ -1345,6 +1411,7 @@ export default function App() {
             <h3>Menu</h3>
             <div className="menu-list">
               <button onClick={() => { setMenu(false); setPage('profile') }}>👤 Profilo</button>
+              <button onClick={() => { setMenu(false); setPage('team') }}>👥 Team e condivisioni</button>
               <button onClick={() => { setMenu(false); setPage('stats') }}>📊 Statistiche</button>
               <button onClick={() => { setMenu(false); setGuide(tab) }}>❓ Guida comandi</button>
               <button onClick={() => { setMenu(false); setThemeOpen(true) }}>🎨 Tema dell'app</button>

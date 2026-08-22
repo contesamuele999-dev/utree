@@ -16,7 +16,10 @@ const PAD = 24
 const NODE_H = 38
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
 
-export default function Tree({ viste, visioni = [], onOpen, onAddChild, onAddToVisione, onReparent, onMoveToVisione, onQuickSave, onDeleteVista }) {
+export default function Tree({ viste, visioni = [], onOpen, onAddChild, onAddToVisione, onReparent, onMoveToVisione, onQuickSave, onDeleteVista, modificabile }) {
+  // `modificabile(vista)` -> false per i progetti condivisi in sola visibilità.
+  // Senza la funzione (uso storico del componente) è tutto modificabile.
+  const puoiScrivere = (v) => (modificabile ? !!modificabile(v) : true)
   const [zoom, setZoom] = useState(1)
   const [drag, setDrag] = useState(null)     // { id, x, y, over, overType }
   const [ask, setAsk] = useState(null)       // { childId, parentId } | { childId, visioneId }
@@ -224,7 +227,7 @@ export default function Tree({ viste, visioni = [], onOpen, onAddChild, onAddToV
       )}
 
       {quick && (
-        <QuickEdit vista={quick} onClose={() => setQuick(null)}
+        <QuickEdit vista={quick} onClose={() => setQuick(null)} readOnly={!puoiScrivere(quick)}
           onSave={onQuickSave} onOpenFull={() => { const v = quick; setQuick(null); onOpen(v) }}
           onDelete={() => { const v = quick; setQuick(null); onDeleteVista?.(v) }} />
       )}
@@ -233,17 +236,18 @@ export default function Tree({ viste, visioni = [], onOpen, onAddChild, onAddToV
 }
 
 // Pannello rapido (bottom sheet) per vedere/modificare il contenuto di una vista.
-function QuickEdit({ vista, onClose, onSave, onOpenFull, onDelete }) {
+function QuickEdit({ vista, onClose, onSave, onOpenFull, onDelete, readOnly = false }) {
   const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [editing, setEditing] = useState(null)
   const timer = useRef(null)
 
   const persist = (next) => {
+    if (readOnly) return   // progetto condiviso in sola visibilità: si legge e basta
     setBlocks(next)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => onSave?.({ ...vista, blocchi: next }), 400)
   }
-  const flush = () => { clearTimeout(timer.current); onSave?.({ ...vista, blocchi: blocks }) }
+  const flush = () => { if (readOnly) return; clearTimeout(timer.current); onSave?.({ ...vista, blocchi: blocks }) }
 
   const setText = (id, text) => persist(blocks.map(b => b.id === id ? { ...b, text } : b))
   const addBlock = () => { const nb = { id: uid(), text: '' }; persist([...blocks, nb]); setEditing(nb.id) }
@@ -258,8 +262,9 @@ function QuickEdit({ vista, onClose, onSave, onOpenFull, onDelete }) {
           <span className="sheet-grip" />
           <h3>{vista.titolo || 'Senza titolo'}</h3>
           <div className="spacer" />
-          <button className="iconbtn mini" title="Apri editor completo" onClick={onOpenFull}>✎</button>
-          <button className="iconbtn mini danger" title="Elimina vista" onClick={() => onDelete?.()}>🗑</button>
+          {readOnly && <span className="team-tag">👁 sola lettura</span>}
+          <button className="iconbtn mini" title={readOnly ? 'Apri per leggere' : 'Apri editor completo'} onClick={onOpenFull}>✎</button>
+          {!readOnly && <button className="iconbtn mini danger" title="Elimina vista" onClick={() => onDelete?.()}>🗑</button>}
           <button className="iconbtn mini" title="Chiudi" onClick={close}>✕</button>
         </div>
         <div className="sheet-body">
@@ -269,16 +274,20 @@ function QuickEdit({ vista, onClose, onSave, onOpenFull, onDelete }) {
                 <textarea autoFocus value={b.text} rows={Math.max(1, b.text.split('\n').length)}
                   onChange={e => setText(b.id, e.target.value)}
                   onBlur={() => setEditing(null)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addBlock() } }} />
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addBlock() }
+                    // Esc esce dalla riga SALVANDO (come nell'editor e in Today)
+                    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); flush(); setEditing(null) }
+                  }} />
               ) : (
-                <div className="rendered" onClick={() => setEditing(b.id)} style={{ marginLeft: (b.indent || 0) * 20 }}>
+                <div className="rendered" onClick={() => { if (!readOnly) setEditing(b.id) }} style={{ marginLeft: (b.indent || 0) * 20 }}>
                   {b.text ? <RenderedBlock text={b.text} blocks={blocks} index={bi} /> : <span style={{ color: 'var(--text-dim)' }}>Vuoto — tocca per scrivere</span>}
                 </div>
               )}
-              <button className="sheet-del" title="Elimina blocco" onClick={() => delBlock(b.id)}>✕</button>
+              {!readOnly && <button className="sheet-del" title="Elimina blocco" onClick={() => delBlock(b.id)}>✕</button>}
             </div>
           ))}
-          <button className="add-btn" style={{ marginTop: 10 }} onClick={addBlock}>＋ Aggiungi blocco</button>
+          {!readOnly && <button className="add-btn" style={{ marginTop: 10 }} onClick={addBlock}>＋ Aggiungi blocco</button>}
         </div>
       </div>
     </div>
