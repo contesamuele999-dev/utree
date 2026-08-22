@@ -59,31 +59,73 @@ const MESI_ABBR = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set'
 const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato']
 const pad2 = (n) => String(n).padStart(2, '0')
 // valore inserito da una scorciatoia, calcolato al momento dell'inserimento
+// data spostata di `n` giorni rispetto a oggi (n negativo = passato)
+const giornoDa = (n) => { const x = new Date(); x.setDate(x.getDate() + n); return x }
+// numero della settimana ISO 8601 (la settimana 1 è quella che contiene il primo giovedì)
+const settimanaISO = (d) => {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  x.setUTCDate(x.getUTCDate() + 4 - (x.getUTCDay() || 7))
+  const capodanno = new Date(Date.UTC(x.getUTCFullYear(), 0, 1))
+  return Math.ceil(((x - capodanno) / 86400000 + 1) / 7)
+}
+const dataEstesa = (d) => `${d.getDate()} ${MESI_FULL[d.getMonth()]} ${d.getFullYear()}`
 const slashValue = (key) => {
   const d = new Date()
   switch (key) {
-    case 'date':  return `${d.getDate()} ${MESI_FULL[d.getMonth()]} ${d.getFullYear()}`
+    case 'date':  return dataEstesa(d)
     case 'sdate': return `${d.getDate()} ${MESI_ABBR[d.getMonth()]}`
     case 'ndate': return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`
     case 'time':  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
     case 'now':   return `${d.getDate()} ${MESI_ABBR[d.getMonth()]} ${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
     case 'day':   return GIORNI[d.getDay()]
+    case 'domani':   return dataEstesa(giornoDa(1))
+    case 'ieri':     return dataEstesa(giornoDa(-1))
+    case 'settimana': return `settimana ${settimanaISO(d)}`
+    case 'mese':     return MESI_FULL[d.getMonth()]
+    case 'anno':     return String(d.getFullYear())
     default:      return ''
   }
 }
-// Due famiglie di comandi:
+// Quattro famiglie di comandi:
 //  - INSERIMENTO: sostituiscono il token /parola con del testo (date, ore…);
-//  - AZIONE (`azione: true`): tolgono il token e fanno qualcosa alla riga.
+//  - AZIONE (`azione: true`): tolgono il token e fanno qualcosa alla riga;
+//  - PREFISSO (`prefisso`): trasformano la riga intera (titoli, elenchi, formula).
+//    Sono INTERRUTTORI: richiamarli su una riga che ha già quel prefisso lo toglie;
+//  - COPPIA (`coppia`): inseriscono due delimitatori e mettono il cursore in mezzo.
+// Attenzione: usare solo sintassi che `lib/markdown.jsx` sa davvero rendere.
 const SLASH_CMDS = [
+  // --- azioni sulla riga ---
   { key: 'check', label: '/check', desc: 'aggiungi o togli il checkbox', azione: true, prev: '☐' },
   { key: 'oggi',  label: '/oggi',  desc: 'porta la riga fra le task di oggi', azione: true, prev: '⚡' },
+  // --- struttura della riga ---
+  { key: 't1',    label: '/t1',    desc: 'titolo grande', prefisso: '# ', prev: 'H1' },
+  { key: 't2',    label: '/t2',    desc: 'titolo medio', prefisso: '## ', prev: 'H2' },
+  { key: 't3',    label: '/t3',    desc: 'titolo piccolo', prefisso: '### ', prev: 'H3' },
+  { key: 'lista', label: '/lista', desc: 'punto elenco', prefisso: '- ', prev: '•' },
+  { key: 'num',   label: '/num',   desc: 'elenco numerato', prefisso: '1. ', prev: '1.' },
+  { key: 'calc',  label: '/calc',  desc: 'formula calcolata (=2*3, =#1+#2)', prefisso: '=', prev: '=' },
+  { key: 'sep',   label: '/sep',   desc: 'linea divisoria', riga: '---', prev: '───' },
+  // --- formattazione del testo (cursore in mezzo ai delimitatori) ---
+  { key: 'bold',   label: '/bold',   desc: 'grassetto', coppia: ['**', '**'], prev: 'B' },
+  { key: 'corsivo', label: '/corsivo', desc: 'corsivo', coppia: ['*', '*'], prev: 'I' },
+  { key: 'codice', label: '/codice', desc: 'testo a spaziatura fissa', coppia: ['`', '`'], prev: '`…`' },
+  { key: 'maiuscoletto', label: '/maiuscoletto', desc: 'maiuscoletto', coppia: ['^^', '^^'], prev: 'ᴀᴀ' },
+  { key: 'link',   label: '/link',   desc: 'collegamento a un\'altra vista', coppia: ['[[', ']]'], prev: '[[…]]' },
+  // --- date e ore ---
   { key: 'date',  label: '/date',  desc: 'giorno mese anno' },
   { key: 'sdate', label: '/sdate', desc: 'giorno e mese abbreviato' },
   { key: 'ndate', label: '/ndate', desc: 'gg/mm/aaaa' },
   { key: 'time',  label: '/time',  desc: 'ora:minuti' },
   { key: 'now',   label: '/now',   desc: 'data e ora' },
   { key: 'day',   label: '/day',   desc: 'giorno della settimana' },
+  { key: 'domani', label: '/domani', desc: 'la data di domani' },
+  { key: 'ieri',  label: '/ieri',  desc: 'la data di ieri' },
+  { key: 'settimana', label: '/settimana', desc: 'numero della settimana' },
+  { key: 'mese',  label: '/mese',  desc: 'mese corrente' },
+  { key: 'anno',  label: '/anno',  desc: 'anno corrente' },
 ]
+// prefissi riconosciuti a inizio riga, tolti prima di applicarne uno nuovo
+const RE_PREFISSO = /^(#{1,3} |[-*] |\d+\. |=)/
 
 // Divide un testo multilinea in righe con livello di rientro dedotto dagli spazi/tab iniziali
 // (2 spazi = 1 livello, oppure 1 tab = 1 livello). `base` è il rientro di partenza.
@@ -1618,15 +1660,43 @@ ${rowsHtml}
       return
     }
 
+    // porta il cursore in `pos` dopo che React ha riscritto la casella
+    const posizionaCaret = (pos) => requestAnimationFrame(() => {
+      const el = editRef.current
+      if (el) { try { el.focus(); el.selectionStart = el.selectionEnd = Math.min(pos, el.value.length); autosize(el) } catch { /* ignore */ } }
+    })
+
+    // comandi PREFISSO / RIGA: agiscono sulla riga intera, non sul punto del cursore
+    if (cmd.prefisso !== undefined || cmd.riga !== undefined) {
+      const pulito = (before + after).replace(/\s+$/, '')
+      let nv
+      if (cmd.riga !== undefined) nv = cmd.riga
+      else {
+        const senza = pulito.replace(RE_PREFISSO, '')
+        // interruttore: se la riga ha già QUESTO prefisso, il comando lo toglie
+        nv = pulito.startsWith(cmd.prefisso) ? senza : cmd.prefisso + senza
+      }
+      setText(b.id, nv)
+      setSlash(null)
+      posizionaCaret(nv.length)
+      return
+    }
+
+    // comandi COPPIA: inserisce i due delimitatori e lascia il cursore in mezzo
+    if (cmd.coppia) {
+      const [apre, chiude] = cmd.coppia
+      const nv = before + apre + chiude + after
+      setText(b.id, nv)
+      setSlash(null)
+      posizionaCaret((before + apre).length)
+      return
+    }
+
     const ins = slashValue(cmd.key)
     const nv = before + ins + after
     setText(b.id, nv)
     setSlash(null)
-    const caret = (before + ins).length
-    requestAnimationFrame(() => {
-      const el = editRef.current
-      if (el) { try { el.focus(); el.selectionStart = el.selectionEnd = caret; autosize(el) } catch { /* ignore */ } }
-    })
+    posizionaCaret((before + ins).length)
   }
 
   const isPlain = (t) => t && !t.startsWith('#') && t.trim() !== '---'
@@ -1987,7 +2057,9 @@ ${rowsHtml}
 
             <li className="grp"><b className="hint-cat">Testo</b> <span><code>Ctrl+B</code> = grassetto · <code>Ctrl+I</code> = corsivo</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+M</code> o <b>AA</b> = MAIUSCOLO</span></li>
-            <li><b className="hint-cat" /> <span><code>/</code> = scorciatoie data/ora</span></li>
+            <li><b className="hint-cat" /> <span><code>/</code> = menu comandi: titoli, elenchi, formattazione, date, formule</span></li>
+            <li><b className="hint-cat" /> <span><code>/t2</code> titolo · <code>/lista</code> elenco · <code>/sep</code> linea · <code>/link</code> collegamento</span></li>
+            <li><b className="hint-cat" /> <span><code>/oggi</code> <code>/domani</code> <code>/settimana</code> · <code>/calc</code> = formula (<code>=#1+#2</code>)</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+⇧+V</code> = incolla su <b>una riga sola</b> (normale <code>Ctrl+V</code> = una riga per capo)</span></li>
             <li><b className="hint-cat" /> <span><b>🎤</b> o <code>Ctrl+⇧+D</code> = dettatura vocale sulla riga in modifica</span></li>
 
@@ -2191,10 +2263,12 @@ ${rowsHtml}
                 {slashOptions().map((c, i) => (
                   <button key={c.key} type="button"
                     className={'slash-opt' + (i === slash.sel ? ' active' : '')}
+                    // la voce scelta con le frecce resta sempre visibile nella lista che scorre
+                    ref={i === slash.sel ? (el => el?.scrollIntoView({ block: 'nearest' })) : undefined}
                     onPointerDown={e => { e.preventDefault(); applySlash(c) }}>
                     <b className="slash-key">{c.label}</b>
                     <span className="slash-desc">{c.desc}</span>
-                    <span className="slash-prev">{c.azione ? c.prev : slashValue(c.key)}</span>
+                    <span className="slash-prev">{c.prev ?? slashValue(c.key)}</span>
                   </button>
                 ))}
               </div>
