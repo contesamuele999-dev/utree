@@ -1,24 +1,35 @@
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
 import { useAuth } from './lib/auth.jsx'
 import { store } from './lib/store.js'
 import Auth from './pages/Auth.jsx'
-import Editor from './views/Editor.jsx'
 import Today from './views/Today.jsx'
-import Ricorrenti from './views/Ricorrenti.jsx'
 import Pipeline from './views/Pipeline.jsx'
-import Tree from './views/Tree.jsx'
-import Links from './views/Links.jsx'
-import Progress from './views/Progress.jsx'
-import Stats from './views/Stats.jsx'
-import Profile from './views/Profile.jsx'
-import Team from './views/Team.jsx'
-import Guide from './views/Guide.jsx'
-import { Privacy, Terms } from './pages/Legal.jsx'
 import { THEMES, applyTheme, loadTheme } from './lib/themes.js'
-import { exportBackup, importBackup } from './lib/backup.js'
-import { importGoogleKeep } from './lib/keepImport.js'
+
+// ---- schermate secondarie: caricate SOLO quando servono -------------------
+// Tutta l'app stava in un unico file da ~590 kB: chi apre uTree per spuntare
+// una task di Today scaricava anche statistiche, team, profilo, guida e mappe.
+// Con l'import dinamico il primo caricamento porta solo il flusso principale
+// (Today · Pipe · editor); il resto arriva al primo uso e poi resta in cache
+// (il service worker della PWA pre-carica comunque tutti i pezzi).
+// L'editor è il pezzo più grosso dell'app ed è il secondo passo di ogni sessione,
+// non il primo: si carica a parte e lo si pre-scarica appena l'app è ferma (vedi
+// più sotto), così quando apri una nota è già lì.
+const caricaEditor = () => import('./views/Editor.jsx')
+const Editor = lazy(caricaEditor)
+const Tree = lazy(() => import('./views/Tree.jsx'))
+const Links = lazy(() => import('./views/Links.jsx'))
+const Progress = lazy(() => import('./views/Progress.jsx'))
+const Stats = lazy(() => import('./views/Stats.jsx'))
+const Profile = lazy(() => import('./views/Profile.jsx'))
+const Team = lazy(() => import('./views/Team.jsx'))
+const Guide = lazy(() => import('./views/Guide.jsx'))
+const Ricorrenti = lazy(() => import('./views/Ricorrenti.jsx'))
+const Pomodoro = lazy(() => import('./views/Pomodoro.jsx'))
+const Privacy = lazy(() => import('./pages/Legal.jsx').then(m => ({ default: m.Privacy })))
+const Terms = lazy(() => import('./pages/Legal.jsx').then(m => ({ default: m.Terms })))
 import { DEFAULT_STAGE } from './lib/stages.js'
-import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino } from './lib/localcache.js'
+import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino, pruneVistaCache, dropVistaCache } from './lib/localcache.js'
 import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount, purgeLocalData } from './lib/offline.js'
 import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
 import { caricaTeam, collegaInviti, mappaPermessi, puoModificare } from './lib/team.js'
@@ -38,6 +49,29 @@ const lastTab = () => {
   try { const t = localStorage.getItem(LAST_TAB); return TABS.some(x => x.id === t) ? t : 'today' }
   catch { return 'today' }
 }
+
+// ---- ricerca fra le viste: usata sia dalla barra dell'editor sia dalla palette ----
+// Priorità ai match nel titolo (2), poi nel contenuto (1). A parità vengono prima
+// le viste dello stesso progetto in cui ti trovi.
+function cercaViste(viste, s, visioneCorrente, limite = 8) {
+  if (!s) return []
+  const scored = []
+  for (const v of viste) {
+    if (v.is_template) continue
+    let sc = 0
+    if ((v.titolo || '').toLowerCase().includes(s)) sc = 2
+    else if ((v.blocchi || []).some(b => (b.text || '').toLowerCase().includes(s))) sc = 1
+    if (sc) scored.push({ v, sc, same: v.visione_id === visioneCorrente })
+  }
+  scored.sort((a, b) => b.sc - a.sc
+    || (b.same ? 1 : 0) - (a.same ? 1 : 0)
+    || (a.v.titolo || '').localeCompare(b.v.titolo || ''))
+  return scored.slice(0, limite)
+}
+
+// Mappe di ripiego salvate su questo dispositivo (fasi, pin, archivio) quando la
+// colonna corrispondente non esiste ancora sul cloud.
+const readMap = (k) => { try { return JSON.parse(localStorage.getItem(k) || '{}') } catch { return {} } }
 
 export default function App() {
   const { user, loading, signOut, isDemo } = useAuth()
@@ -63,9 +97,15 @@ export default function App() {
   const [jumpText, setJumpText] = useState(null)     // termine cercato: la vista aperta scrolla alla riga che lo contiene
   const [remoteRev, setRemoteRev] = useState(0)      // sale quando la vista aperta cambia sul cloud: l'editor si ri-sincronizza
   const [focusMode, setFocusMode] = useState(false)
+  // Timer Pomodoro: si accende dal menu ☰ e resta acceso fra le sessioni.
+  // La modalità Focus lo mostra comunque: sono la stessa idea — un tempo dedicato.
+  const [pomodoro, setPomodoro] = useState(() => {
+    try { return localStorage.getItem('utree-pomodoro-on') === '1' } catch { return false }
+  })
   const [page, setPage] = useState(null)       // 'privacy' | 'terms' | 'profile' | 'stats'
   const [guide, setGuide] = useState(null)     // sezione della guida
   const [menu, setMenu] = useState(false)
+  const [quick, setQuick] = useState(false)     // palette di ricerca rapida (Ctrl+K)
   const [fabOpen, setFabOpen] = useState(false)
   const [prompt, setPrompt] = useState(null)
   const [confirm, setConfirm] = useState(null)
@@ -175,6 +215,7 @@ export default function App() {
     // istantanea dello stato cloud: base per il merge a 3 vie al prossimo salvataggio
     baseBlocchi.current = Object.fromEntries(allViste.map(v => [v.id, v.blocchi || []]))
     const merged = mergeVisteWithCache(allViste)   // ripristina modifiche locali non ancora confermate
+    pruneVistaCache(new Set(allViste.map(v => v.id)))   // alleggerisce: la cache viene riscritta a ogni battuta
     setViste(merged)
     const ids = new Set(merged.map(v => v.id))
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
@@ -457,7 +498,18 @@ export default function App() {
     } catch (e) { avvisaMigrazione(e) }
   }
 
+  useEffect(() => {
+    try { localStorage.setItem('utree-pomodoro-on', pomodoro ? '1' : '0') } catch { /* quota */ }
+  }, [pomodoro])
   useEffect(() => { setTheme(loadTheme()) }, [])
+  // Pre-scarica l'editor quando il browser è libero: aprire una nota resta istantaneo
+  // anche se il suo pezzo di codice non fa parte del primo caricamento.
+  useEffect(() => {
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1200))
+    const cancel = window.cancelIdleCallback || clearTimeout
+    const h = idle(() => { caricaEditor().catch(() => {}) })
+    return () => { try { cancel(h) } catch { /* ignore */ } }
+  }, [])
   useEffect(() => { if (user) reload() }, [user, reload])
 
   // ---- ripresa di sessione ---------------------------------------------------
@@ -558,6 +610,7 @@ export default function App() {
   // ---- tasto INDIETRO (mobile): chiude l'overlay in cima invece di uscire dall'app ----
   const overlaysRef = useRef([])
   overlaysRef.current = [
+    quick && (() => setQuick(false)),
     confirm && (() => setConfirm(null)),
     prompt && (() => setPrompt(null)),
     templatePick && (() => setTemplatePick(false)),
@@ -594,6 +647,31 @@ export default function App() {
   useEffect(() => {
     if (vistaAperta) window.history.pushState({ utree: true, vista: vistaAperta.id }, '')
   }, [vistaAperta?.id])
+
+  // ---- scorciatoie da tastiera globali -------------------------------------
+  // Ctrl/Cmd+K = ricerca rapida da QUALUNQUE punto dell'app (anche dentro una nota):
+  // prima, per saltare a un'altra vista dalla scheda Today bisognava passare da Pipe.
+  // Alt+1…5 = salta alla scheda corrispondente (non Ctrl+1, che il browser usa per
+  // cambiare le SUE schede).
+  useEffect(() => {
+    const h = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault(); e.stopPropagation()
+        setQuick(q => !q)
+        return
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-5]$/.test(e.key)) {
+        const t = TABS[Number(e.key) - 1]
+        if (!t) return
+        e.preventDefault()
+        setQuick(false)
+        setVistaAperta(null); setPage(null)
+        setTab(prev => { setTabDir(TABS.findIndex(x => x.id === t.id) > TABS.findIndex(x => x.id === prev) ? 1 : -1); return t.id })
+      }
+    }
+    window.addEventListener('keydown', h, true)   // in cattura: arriva prima dei gestori delle viste
+    return () => window.removeEventListener('keydown', h, true)
+  }, [])
 
   // ---- swipe fra le schede ----
   const changeTab = (next, dir) => { setTabDir(dir); setTab(next) }
@@ -667,6 +745,49 @@ export default function App() {
     (v) => puoModificare(permessoDi(v?.visione_id)),
     [permessoDi]
   )
+
+  // ---- derivati pesanti, calcolati SOLO quando cambiano davvero -------------
+  // Prima stavano nel corpo del render: ogni singolo re-render dell'app (una battuta
+  // salvata, una spunta, un cambio scheda) rileggeva e ri-parsava tre chiavi di
+  // localStorage e riscorreva tutte le righe di tutte le viste. Con qualche centinaio
+  // di righe si sentiva mentre si scriveva.
+  // NB: stanno QUI, prima dei return anticipati, come tutti gli altri hook.
+  const visteConFasi = useMemo(() => {
+    const pins = readMap('utree-pins')
+    const stages = readMap('utree-stages')
+    return viste.map(v => {
+      let out = v
+      if (v.stage == null && stages[v.id]) out = { ...out, stage: stages[v.id] }
+      if (v.pinned == null && pins[v.id]) out = { ...out, pinned: true }
+      return out
+    })
+  }, [viste])
+  const visioniConArchivio = useMemo(() => {
+    const map = readMap('utree-archivio')
+    return visioni.map(v => (v.archiviata == null && map[v.id]) ? { ...v, archiviata: true } : v)
+  }, [visioni])
+
+  // Proposte di oggi: righe con scadenza ≤ oggi non ancora prese in carico.
+  // Escluse template, cestino e visioni archiviate (vedi lib/today.js).
+  const proposteOggi = useMemo(
+    () => proposte({ viste, visioni: visioniConArchivio, task, oggi: todayKey() }),
+    [viste, visioniConArchivio, task]
+  )
+  // Task arricchite con la loro origine: titolo della vista e visione, e il flag
+  // `orfana` se la riga di partenza è stata eliminata (la task resta, lo storico
+  // non deve mai perdere pezzi).
+  const taskOggi = useMemo(() => {
+    const oggi = todayKey()
+    return task.filter(t => t && t.giorno === oggi)
+  }, [task])
+  const taskConOrigine = useMemo(() => {
+    const byId = new Map(viste.map(v => [v.id, v]))   // era una `find` per ogni task: O(task × viste)
+    return task.map(t => {
+      if (!t.vista_id) return t
+      const v = byId.get(t.vista_id)
+      return { ...t, vistaTitolo: v?.titolo, visione_id: v?.visione_id, orfana: !v }
+    })
+  }, [task, viste])
 
   if (loading) return <div style={{display:'grid',placeItems:'center',height:'100dvh'}}>Caricamento…</div>
   if (!user) return <Auth />
@@ -1000,15 +1121,6 @@ export default function App() {
     }
   }
 
-  const withLocalArchivio = (vs) => {
-    const map = JSON.parse(localStorage.getItem('utree-archivio') || '{}')
-    return vs.map(v => (v.archiviata == null && map[v.id]) ? { ...v, archiviata: true } : v)
-  }
-
-  const withLocalStages = (vs) => {
-    const map = JSON.parse(localStorage.getItem('utree-stages') || '{}')
-    return vs.map(v => (v.stage == null && map[v.id]) ? { ...v, stage: map[v.id] } : v)
-  }
 
   // ---- Pin: fissa una vista in cima alla sua visione (Pipe). Sincronizzato sul cloud
   //      con la colonna `pinned`; se la colonna non esiste ancora, fallback su questo
@@ -1030,10 +1142,6 @@ export default function App() {
     }
   }
 
-  const withLocalPins = (vs) => {
-    const map = JSON.parse(localStorage.getItem('utree-pins') || '{}')
-    return vs.map(v => (v.pinned == null && map[v.id]) ? { ...v, pinned: true } : v)
-  }
 
   // Fotografa lo scroll della vista aperta: va chiamato PRIMA di cambiare vista.
   const salvaScrollVista = () => {
@@ -1089,15 +1197,30 @@ export default function App() {
     })
   }
 
+  // ---- ricerca rapida (Ctrl+K): dove porta un risultato ----------------------
+  const apriDaQuick = (r) => {
+    setQuick(false)
+    if (r.tipo === 'task') { setPage(null); setVistaAperta(null); setTab('today'); setTabDir(0); return }
+    const term = r.sc === 1 ? r.term : null
+    setPage(null)
+    if (vistaAperta) pushVista(r.v, term)   // da dentro una nota: impila, così il ← torna indietro
+    else openFromList(r.v, term)
+  }
+
   const chooseTheme = (id) => { applyTheme(id); setTheme(id); }
 
   const doExport = async () => {
     setBusy('export')
-    try { await exportBackup() } finally { setBusy(''); setMenu(false) }
+    try {
+      const { exportBackup } = await import('./lib/backup.js')
+      await exportBackup()
+    } catch (e) { alert('Errore export: ' + (e?.message || e)) }
+    finally { setBusy(''); setMenu(false) }
   }
   const doImport = async (file) => {
     setBusy('import')
     try {
+      const { importBackup } = await import('./lib/backup.js')
       await importBackup(file)
       await reload()
       alert('Backup importato con successo.')
@@ -1109,6 +1232,7 @@ export default function App() {
     if (!files?.length) return
     setBusy('keep')
     try {
+      const { importGoogleKeep } = await import('./lib/keepImport.js')
       const res = await importGoogleKeep(files)
       await reload()
       alert(`Importazione da Google Keep completata: ${res.imported} note importate` + (res.skipped ? `, ${res.skipped} saltate (cestino)` : '') + `.\nTrovi le note nella visione "Google Keep" appena creata.`)
@@ -1184,20 +1308,6 @@ export default function App() {
     openAdjacentVista(dx < 0 ? 1 : -1)   // swipe verso sinistra = vista successiva
   }
 
-  const visteConFasi = withLocalPins(withLocalStages(viste))
-  const visioniConArchivio = withLocalArchivio(visioni)
-
-  // Proposte di oggi: righe con scadenza ≤ oggi non ancora prese in carico.
-  // Escluse template, cestino e visioni archiviate (vedi lib/today.js).
-  const proposteOggi = proposte({ viste, visioni: visioniConArchivio, task, oggi: todayKey() })
-  // Task arricchite con la loro origine: titolo della vista e visione, e il flag
-  // `orfana` se la riga di partenza è stata eliminata (la task resta, lo storico
-  // non deve mai perdere pezzi).
-  const taskConOrigine = task.map(t => {
-    if (!t.vista_id) return t
-    const v = viste.find(x => x.id === t.vista_id)
-    return { ...t, vistaTitolo: v?.titolo, visione_id: v?.visione_id, orfana: !v }
-  })
   const pageTitles = { privacy: 'Privacy', terms: 'Termini e condizioni', profile: 'Profilo', stats: 'Statistiche', team: 'Team e condivisioni' }
 
   // ---------- Pagine a schermo intero (profilo, statistiche, legali) ----------
@@ -1210,15 +1320,22 @@ export default function App() {
           <div className="spacer" />
         </div>
         <div className="content">
-          {page === 'privacy' && <Privacy />}
-          {page === 'terms' && <Terms />}
-          {page === 'profile' && <Profile />}
-          {page === 'team' && (
-            <Team visioni={visioniConArchivio} userId={user?.id} isDemo={isDemo}
-              dati={teamDati} onRefresh={ricaricaTeam} />
-          )}
-          {page === 'stats' && <Stats viste={visteConFasi} task={task} regole={regole} giorni={giorni} />}
+          <Suspense fallback={<Caricando />}>
+            {page === 'privacy' && <Privacy />}
+            {page === 'terms' && <Terms />}
+            {page === 'profile' && <Profile />}
+            {page === 'team' && (
+              <Team visioni={visioniConArchivio} userId={user?.id} isDemo={isDemo}
+                dati={teamDati} onRefresh={ricaricaTeam} />
+            )}
+            {page === 'stats' && <Stats viste={visteConFasi} task={task} regole={regole} giorni={giorni} />}
+          </Suspense>
         </div>
+      {quick && (
+        <QuickSearch viste={viste} visioni={visioni} task={taskOggi}
+          visioneCorrente={vistaAperta?.visione_id}
+          onOpen={apriDaQuick} onClose={() => setQuick(false)} />
+      )}
       </div>
     )
   }
@@ -1235,12 +1352,25 @@ export default function App() {
           <button className="iconbtn" title="Focus" onClick={() => setFocusMode(f => !f)}>{focusMode ? '🔅' : '🎯'}</button>
         </div>
         <div className="content" ref={contentRef} onTouchStart={onEditorTouchStart} onTouchMove={onEditorTouchMove} onTouchEnd={onEditorTouchEnd}>
+          <Suspense fallback={<Caricando />}>
           <Editor key={vistaAperta.id} vista={vistaAperta} onChange={saveVista} onWikilink={openByName} focusMode={focusMode} allViste={viste} onSetStage={setStage} onClose={closeVista} jumpTo={jumpText} onSaveTemplate={saveAsTemplate}
             readOnly={!vistaModificabile(vistaAperta)}
             api={editorApi} onEditingChange={setEditorEditing} remoteRev={remoteRev}
             onSendToToday={(dati) => sendToToday(dati, vistaAperta.id)} />
+          </Suspense>
         </div>
         <SwipeHint hint={swipeHint} />
+        {(pomodoro || focusMode) && (
+          <Suspense fallback={null}>
+            <Pomodoro focusMode={focusMode} onToggleFocus={() => setFocusMode(f => !f)}
+              onClose={() => { setPomodoro(false); setFocusMode(false) }} />
+          </Suspense>
+        )}
+      {quick && (
+        <QuickSearch viste={viste} visioni={visioni} task={taskOggi}
+          visioneCorrente={vistaAperta?.visione_id}
+          onOpen={apriDaQuick} onClose={() => setQuick(false)} />
+      )}
         {prompt && <NamePrompt data={prompt} onClose={() => setPrompt(null)} />}
         {guide && <GuideModal section={guide} onClose={() => setGuide(null)} />}
       </div>
@@ -1271,13 +1401,17 @@ export default function App() {
             {offline ? '⚡ offline' : `↻ ${inCoda}`}
           </span>
         )}
-        <button className="iconbtn" title="Usa un template per creare una nuova vista" onClick={() => setTemplatePick(true)}>🧩</button>
+        <button className="iconbtn" title="Ricerca rapida (Ctrl+K)" onClick={() => setQuick(true)}>🔍</button>
+        {/* su schermo stretto la barra non regge cinque pulsanti: i template restano
+            raggiungibili dal menu ☰ (vedi la voce "Nuova vista da template"). */}
+        <button className="iconbtn solo-largo" title="Usa un template per creare una nuova vista" onClick={() => setTemplatePick(true)}>🧩</button>
         <button className="iconbtn" title="Guida" onClick={() => setGuide(tab)}>?</button>
         <button className="iconbtn" onClick={() => setMenu(true)}>☰</button>
       </div>
 
       <div className="content" ref={contentRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
         <div key={tab} className={'tab-pane ' + (tabDir < 0 ? 'from-left' : tabDir > 0 ? 'from-right' : '')}>
+          <Suspense fallback={<Caricando />}>
           {tab === 'today' && (
             <Today task={taskConOrigine} tuttoLoStorico={taskConOrigine} visioni={visioniConArchivio}
               proposte={proposteOggi} giorni={giorni} giornoCorrente={giornoOggi}
@@ -1318,6 +1452,7 @@ export default function App() {
           {tab === 'progress' && (
             <Progress viste={visteConFasi} onOpen={openFromList} onSetStage={setStage} />
           )}
+          </Suspense>
         </div>
       </div>
 
@@ -1345,12 +1480,25 @@ export default function App() {
 
       <SwipeHint hint={swipeHint} />
 
+      {pomodoro && (
+        <Suspense fallback={null}>
+          <Pomodoro onClose={() => setPomodoro(false)} />
+        </Suspense>
+      )}
+
       {ricorrentiOpen && (
+        <Suspense fallback={null}>
         <Ricorrenti regole={regole} iniziale={ricorrentiOpen.iniziale}
           tenuta={tenutaRicorrenti(task, regole)}
           onSave={(r) => salvaRegola(r.id ? r : { ...r, daTask: ricorrentiOpen.daTask })}
           onDelete={eliminaRegola}
           onClose={() => setRicorrentiOpen(null)} />
+        </Suspense>
+      )}
+      {quick && (
+        <QuickSearch viste={viste} visioni={visioni} task={taskOggi}
+          visioneCorrente={vistaAperta?.visione_id}
+          onOpen={apriDaQuick} onClose={() => setQuick(false)} />
       )}
       {prompt && <NamePrompt data={prompt} onClose={() => setPrompt(null)} />}
       {confirm && <ConfirmModal data={confirm} onClose={() => setConfirm(null)} />}
@@ -1414,7 +1562,11 @@ export default function App() {
               <button onClick={() => { setMenu(false); setPage('team') }}>👥 Team e condivisioni</button>
               <button onClick={() => { setMenu(false); setPage('stats') }}>📊 Statistiche</button>
               <button onClick={() => { setMenu(false); setGuide(tab) }}>❓ Guida comandi</button>
+              <button onClick={() => { setMenu(false); setTemplatePick(true) }}>🧩 Nuova vista da template</button>
               <button onClick={() => { setMenu(false); setThemeOpen(true) }}>🎨 Tema dell'app</button>
+              <button onClick={() => { setMenu(false); setPomodoro(p => !p) }}>
+                🍅 Timer Pomodoro {pomodoro ? '· acceso' : ''}
+              </button>
               <button onClick={() => {
                 setMenu(false)
                 setConfirm({
@@ -1422,7 +1574,7 @@ export default function App() {
                   messaggio: 'Cancella snapshot, coda di sincronizzazione e cache delle viste salvati su QUESTO dispositivo, poi ricarica tutto dal cloud. Non tocca nulla su Supabase.'
                     + (inCoda ? `\n\nAttenzione: ci sono ${inCoda} modifiche non ancora salite. Andrebbero perse.` : ''),
                   okLabel: 'Ripulisci e ricarica',
-                  onOk: async () => { purgeLocalData(); await reload() },
+                  onOk: async () => { purgeLocalData(); dropVistaCache(); await reload() },
                 })
               }}>🧹 Ripulisci le copie locali</button>
               <button onClick={doExport} disabled={busy==='export'}>⬇ Esporta backup (JSON)</button>
@@ -1450,6 +1602,84 @@ export default function App() {
   )
 }
 
+// ============================================================
+// RICERCA RAPIDA (Ctrl+K) — una sola casella per arrivare ovunque.
+// Cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi,
+// da qualunque schermata: prima, per aprire una nota da Today bisognava
+// passare da Pipe, scorrere e cliccare.
+// ============================================================
+function QuickSearch({ viste, visioni, task, visioneCorrente, onOpen, onClose }) {
+  const [q, setQ] = useState('')
+  const [hi, setHi] = useState(0)
+  const inputRef = useRef(null)
+  const s = q.trim().toLowerCase()
+  const visName = (id) => visioni.find(v => v.id === id)?.titolo || ''
+
+  const results = useMemo(() => {
+    if (!s) return []
+    const viste8 = cercaViste(viste, s, visioneCorrente, 7)
+      .map(r => ({ tipo: 'vista', key: 'v' + r.v.id, v: r.v, sc: r.sc, term: s }))
+    const tasks = (task || [])
+      .filter(t => (t.text || '').toLowerCase().includes(s))
+      .slice(0, 4)
+      .map(t => ({ tipo: 'task', key: 't' + t.id, t }))
+    return [...viste8, ...tasks]
+  }, [s, viste, task, visioneCorrente])
+
+  useEffect(() => { setHi(0) }, [s])
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const scegli = (r) => { if (r) onOpen(r) }
+  const onKey = (e) => {
+    e.stopPropagation()
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(results.length - 1, h + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(0, h - 1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); scegli(results[hi] || results[0]) }
+    else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+  }
+
+  return (
+    <div className="modal-bg quick-bg" onClick={onClose}>
+      <div className="quick" onClick={e => e.stopPropagation()} data-noswipe="">
+        <div className="quick-head">
+          <span className="quick-ico">🔍</span>
+          <input ref={inputRef} className="quick-input" value={q} onKeyDown={onKey}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Cerca una vista o una task di oggi…" />
+          <kbd className="quick-kbd">Esc</kbd>
+        </div>
+        {s ? (
+          results.length ? (
+            <div className="quick-list">
+              {results.map((r, i) => (
+                <button key={r.key} className={'quick-item' + (i === hi ? ' hi' : '')}
+                  onMouseEnter={() => setHi(i)} onClick={() => scegli(r)}>
+                  {r.tipo === 'vista' ? (
+                    <>
+                      <span className="quick-title">📄 {r.v.titolo || 'Senza titolo'}</span>
+                      <span className="quick-meta">{visName(r.v.visione_id)}{r.sc === 1 ? ' · nel testo' : ''}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="quick-title">{r.t.done ? '☑' : '☐'} {r.t.text}</span>
+                      <span className="quick-meta">task di oggi</span>
+                    </>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : <div className="quick-empty">Nessun risultato.</div>
+        ) : (
+          <div className="quick-empty">
+            Scrivi per cercare fra viste e task. <b>↑↓</b> per scegliere, <b>↵</b> per aprire.
+            <br />Da qualunque schermata: <b>Ctrl+K</b> · schede con <b>Alt+1…5</b>.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Barra di ricerca nell'header dell'editor: salta rapidamente a un'altra vista.
 // Priorità ai match nel titolo, poi nel contenuto. Enter apre il primo risultato.
 function EditorVistaSearch({ viste, visioni, current, onOpen }) {
@@ -1459,20 +1689,7 @@ function EditorVistaSearch({ viste, visioni, current, onOpen }) {
   const boxRef = useRef(null)
   const visName = (id) => visioni.find(v => v.id === id)?.titolo || ''
   const s = q.trim().toLowerCase()
-  const results = useMemo(() => {
-    if (!s) return []
-    const scored = []
-    for (const v of viste) {
-      if (v.is_template) continue
-      const title = (v.titolo || '').toLowerCase()
-      let sc = 0
-      if (title.includes(s)) sc = 2
-      else if ((v.blocchi || []).some(b => (b.text || '').toLowerCase().includes(s))) sc = 1
-      if (sc) scored.push({ v, sc, same: v.visione_id === current?.visione_id })
-    }
-    scored.sort((a, b) => b.sc - a.sc || (b.same ? 1 : 0) - (a.same ? 1 : 0) || (a.v.titolo || '').localeCompare(b.v.titolo || ''))
-    return scored.slice(0, 8)
-  }, [s, viste, current])
+  const results = useMemo(() => cercaViste(viste, s, current?.visione_id), [s, viste, current])
 
   useEffect(() => {
     const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
@@ -1538,7 +1755,7 @@ function GuideModal({ section, onClose }) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <Guide section={section} />
+        <Suspense fallback={<Caricando />}><Guide section={section} /></Suspense>
         <div className="row"><button className="btn" onClick={onClose}>Ho capito</button></div>
       </div>
     </div>
@@ -1547,11 +1764,21 @@ function GuideModal({ section, onClose }) {
 
 function NamePrompt({ data, onClose }) {
   const [val, setVal] = useState(data.valore || '')
-  const ok = () => {
+  const [busy, setBusy] = useState(false)
+  // `onOk` scrive sul cloud e può fallire (permessi, tabella mancante, rete).
+  // Prima il modale si chiudeva comunque e l'errore finiva in una promise non
+  // gestita: la visione "non veniva creata" senza che nulla lo dicesse.
+  const ok = async () => {
     const nome = val.trim()
-    if (!nome) return
-    data.onOk(nome)
-    onClose()
+    if (!nome || busy) return
+    setBusy(true)
+    try {
+      await data.onOk(nome)
+      onClose()
+    } catch (e) {
+      setBusy(false)
+      alert('Non è stato possibile salvare: ' + (e?.message || e))
+    }
   }
   return (
     <div className="modal-bg" onClick={onClose}>
@@ -1559,14 +1786,14 @@ function NamePrompt({ data, onClose }) {
         <h3>{data.titolo}</h3>
         <div className="field">
           <label>{data.label}</label>
-          <input className="input" autoFocus value={val}
+          <input className="input" autoFocus value={val} disabled={busy}
             onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') ok(); if (e.key === 'Escape') onClose() }}
             placeholder="Scrivi un nome…" />
         </div>
         <div className="row">
           <button className="btn ghost" onClick={onClose}>Annulla</button>
-          <button className="btn" onClick={ok}>Conferma</button>
+          <button className="btn" onClick={ok} disabled={busy}>{busy ? 'Salvo…' : 'Conferma'}</button>
         </div>
       </div>
     </div>
@@ -1574,7 +1801,13 @@ function NamePrompt({ data, onClose }) {
 }
 
 function ConfirmModal({ data, onClose }) {
-  const ok = async () => { await data.onOk(); onClose() }
+  const [busy, setBusy] = useState(false)
+  const ok = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await data.onOk(); onClose() }
+    catch (e) { setBusy(false); alert('Operazione non riuscita: ' + (e?.message || e)) }
+  }
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -1582,11 +1815,17 @@ function ConfirmModal({ data, onClose }) {
         <p style={{ color: 'var(--text-dim)', lineHeight: 1.5, margin: '0 0 4px' }}>{data.messaggio}</p>
         <div className="row">
           <button className="btn ghost" onClick={onClose}>Annulla</button>
-          <button className="btn danger" onClick={ok}>{data.okLabel || 'Elimina'}</button>
+          <button className="btn danger" onClick={ok} disabled={busy}>{busy ? 'Attendi…' : (data.okLabel || 'Elimina')}</button>
         </div>
       </div>
     </div>
   )
+}
+
+// Attesa del caricamento di una schermata secondaria: un secondo scarso alla
+// prima apertura, poi mai più (il pezzo resta in cache).
+function Caricando() {
+  return <div style={{padding:40,textAlign:'center',color:'var(--text-dim)'}}>Caricamento…</div>
 }
 
 function Empty({ msg }) {

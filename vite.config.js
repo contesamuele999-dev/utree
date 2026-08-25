@@ -9,6 +9,18 @@ const base = process.env.VITE_BASE || '/utree/'
 
 export default defineConfig({
   base,
+  build: {
+    // Le librerie (React, Supabase) cambiano di rado: tenerle in un pezzo separato
+    // significa che una nuova versione dell'app non costringe a riscaricarle.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-dom/client'],
+          supabase: ['@supabase/supabase-js'],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({

@@ -515,7 +515,12 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* ---------- Focus / Pomodoro ---------- */
-.pomodoro { position: fixed; right: 18px; bottom: 18px; z-index: 40; }
+/* In basso a SINISTRA: a destra c'è già il pulsante ＋ (FAB) e i due si coprivano. */
+.pomodoro {
+  position: fixed; z-index: 50;
+  left: calc(18px + env(safe-area-inset-left, 0px));
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+}
 .pomo-btn { padding: 12px 16px; border-radius: 999px; background: linear-gradient(135deg, var(--green-bright), var(--green-deep)); color: #06160e; font-weight: 700; box-shadow: var(--shadow); display: flex; align-items: center; gap: 8px; }
 .pomo-panel { width: 260px; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
 .pomo-time { font-size: 46px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
@@ -532,6 +537,37 @@ a { color: var(--accent); text-decoration: none; }
 }
 @keyframes drop { from { transform: translate(-50%, -20px); opacity: 0; } }
 .break-toast b { color: var(--green-bright); }
+
+/* ---------- Ricerca rapida (Ctrl+K) ---------- */
+.quick-bg { align-items: start; place-items: start center; padding-top: 12vh; }
+.quick {
+  width: 100%; max-width: 560px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+}
+.quick-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.quick-ico { opacity: .7; }
+.quick-input {
+  flex: 1; background: none; border: none; outline: none; color: var(--text);
+  font-size: 17px; padding: 2px 0; min-width: 0;
+}
+.quick-kbd {
+  font-size: 11px; color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 6px; flex: 0 0 auto;
+}
+.quick-list { max-height: 52vh; overflow-y: auto; padding: 6px; }
+.quick-item {
+  width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 10px 12px; border-radius: 10px; background: none; text-align: left; color: var(--text);
+}
+.quick-item.hi { background: var(--panel-2); }
+.quick-title { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.quick-meta { font-size: 11.5px; color: var(--text-dim); }
+.quick-empty { padding: 18px 16px; color: var(--text-dim); font-size: 13.5px; line-height: 1.6; }
+
+@media (max-width: 560px) {
+  .quick-bg { padding-top: 8vh; }
+  .quick-input { font-size: 16px; }
+}
 
 /* ---------- Modal ---------- */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 80; padding: 16px; }
@@ -923,7 +959,11 @@ a { color: var(--accent); text-decoration: none; }
   .modal { padding: 18px; border-radius: 16px; }
   .theme-grid { grid-template-columns: 1fr; }
 
-  .pomodoro { right: 12px; bottom: 12px; }
+  .pomodoro {
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .pomo-panel { width: min(260px, calc(100vw - 24px)); }
 
   /* Righe più comode da telefono: casella di scrittura più alta e leggibile. */
   .editor-head { padding-right: 0; }
@@ -1223,6 +1263,9 @@ a { color: var(--accent); text-decoration: none; }
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
   .fab { width: 52px; height: 52px; font-size: 27px; }
+  /* barra in alto: su telefono i pulsanti non ci stanno tutti, quelli marcati
+     "solo-largo" hanno un doppione nel menu ☰ */
+  .solo-largo { display: none; }
   .fab-plus { width: 27px; height: 27px; }
 }
 

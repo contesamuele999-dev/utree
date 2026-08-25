@@ -12,11 +12,51 @@ const KEY = 'utree-vista-cache'
 // Flag: la colonna `cestino` non esiste ancora su Supabase.
 const NO_CESTINO = 'utree-no-cestino-col'
 
+// Specchio in memoria della cache. `cacheVistaLocal` viene chiamata a OGNI battuta:
+// senza questo, ogni tasto premuto costava un JSON.parse dell'intera cache (tutte le
+// viste toccate, non solo quella aperta) oltre allo stringify. Ora si rilegge da
+// localStorage una volta sola per sessione; la scrittura resta sincrona, che è tutto
+// ciò che serve alla garanzia anti-perdita.
+let mem = null
+
 function read() {
-  try { return JSON.parse(localStorage.getItem(KEY)) || {} } catch { return {} }
+  if (mem) return mem
+  try { mem = JSON.parse(localStorage.getItem(KEY)) || {} } catch { mem = {} }
+  return mem
 }
 function write(obj) {
+  mem = obj
   try { localStorage.setItem(KEY, JSON.stringify(obj)) } catch { /* quota */ }
+}
+
+// Alleggerisce la cache. Una voce NON dirty è già confermata dal cloud: di essa
+// serve solo la `base` (lo stato da cui ripartirà il prossimo merge a 3 vie), non
+// una seconda copia di blocchi, titolo e cestino. Lasciandocela, la cache cresceva
+// a ogni vista toccata e ogni singola battuta ne riscriveva l'intero contenuto.
+// Le voci dirty non si toccano mai: contengono lavoro non ancora salito.
+// `idsVivi` (facoltativo) = le viste che esistono ancora: le altre spariscono.
+export function pruneVistaCache(idsVivi) {
+  const db = read()
+  const ids = idsVivi ? (idsVivi instanceof Set ? idsVivi : new Set(idsVivi)) : null
+  const out = {}
+  let cambiato = false
+  for (const [id, c] of Object.entries(db)) {
+    if (c?.dirty) { out[id] = c; continue }
+    if (ids && !ids.has(id)) { cambiato = true; continue }     // vista eliminata: via del tutto
+    if (c && c.base !== undefined) {
+      const snello = { base: c.base, dirty: false, ts: c.ts }
+      if (Object.keys(c).length !== Object.keys(snello).length) cambiato = true
+      out[id] = snello
+    } else cambiato = true                                      // niente base: non serve a nulla
+  }
+  if (cambiato) write(out)
+}
+
+// Dimentica anche lo specchio in memoria: va chiamata insieme a `purgeLocalData()`,
+// altrimenti la copia in RAM riscriverebbe subito quella appena cancellata.
+export function dropVistaCache() {
+  mem = {}
+  try { localStorage.removeItem(KEY) } catch { /* ignore */ }
 }
 
 // Scrive (sincrono) le modifiche di una vista nella cache, marcandola "dirty".

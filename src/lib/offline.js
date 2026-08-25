@@ -107,6 +107,8 @@ export async function replayOutbox(store) {
         q = q.slice(1)
       } else {
         q = q.slice(1)   // voce sconosciuta (versione vecchia): scarta
+        writeJSON(OUT_KEY, q)
+        continue         // scartata, non "fatta": non va contata come sincronizzata
       }
       fatte++
       writeJSON(OUT_KEY, q)

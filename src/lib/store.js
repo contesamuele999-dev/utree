@@ -64,6 +64,19 @@ export function mergeBlocchi(base, local, remote) {
   return result
 }
 
+// ---------- identità dell'utente (senza andare in rete) ----------
+// `auth.getUser()` interroga il server di Supabase a OGNI chiamata: usato prima di
+// ogni insert significava un viaggio di rete in più per ogni riga creata (una task
+// aggiunta ne costava due). `getSession()` legge la sessione già in memoria/localStorage
+// e rinnova il token solo quando è scaduto: stesso risultato, senza attesa.
+async function currentUserId() {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  const id = data?.session?.user?.id
+  if (!id) throw new Error('Sessione non disponibile: rientra con il tuo account.')
+  return id
+}
+
 function loadLocal() {
   try { return JSON.parse(localStorage.getItem(LS_KEY)) || seed() }
   catch { return seed() }
@@ -126,8 +139,8 @@ export const store = {
   async insert(table, row, opts = {}) {
     if (hasSupabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        const { data, error } = await supabase.from(table).insert({ ...row, user_id: user.id }).select().single()
+        const userId = await currentUserId()
+        const { data, error } = await supabase.from(table).insert({ ...row, user_id: userId }).select().single()
         if (error) throw error
         return data
       } catch (e) {
@@ -210,8 +223,8 @@ export const store = {
     const list = (rows || []).filter(Boolean)
     if (!list.length) return []
     if (hasSupabase) {
-      const { data: { user } } = await supabase.auth.getUser()
-      const payload = list.map(r => ({ ...r, user_id: user.id }))
+      const userId = await currentUserId()
+      const payload = list.map(r => ({ ...r, user_id: userId }))
       const q = supabase.from(table).insert(payload, { defaultToNull: false })
       const { data, error } = await q.select()
       if (error) {
@@ -242,9 +255,9 @@ export const store = {
   async upsertGiorno(giornoKey, patch, opts = {}) {
     if (hasSupabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
+        const userId = await currentUserId()
         const { data, error } = await supabase.from('giorno')
-          .upsert({ ...patch, giorno: giornoKey, user_id: user.id }, { onConflict: 'user_id,giorno' })
+          .upsert({ ...patch, giorno: giornoKey, user_id: userId }, { onConflict: 'user_id,giorno' })
           .select().single()
         if (error) throw error
         return data
@@ -268,9 +281,9 @@ export const store = {
   // e ritorna { url, path }. In modalità demo non viene chiamata (si usa base64).
   async uploadImage(blob, vistaId) {
     if (!hasSupabase) throw new Error('Storage non disponibile in modalità demo')
-    const { data: { user } } = await supabase.auth.getUser()
+    const userId = await currentUserId()
     const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-    const path = `${user.id}/${vistaId}/${name}`
+    const path = `${userId}/${vistaId}/${name}`
     const { error } = await supabase.storage.from('vista-immagini')
       .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
     if (error) throw error

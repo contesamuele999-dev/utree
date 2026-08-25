@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "test": "node --test src/lib/*.test.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "demo": "vite --mode demo"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

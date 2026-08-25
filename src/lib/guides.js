@@ -4,6 +4,7 @@ export const GUIDES = {
     titolo: 'Guida · Today',
     icona: '☀️',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['A cosa serve', 'Le viste dicono cosa esiste, Progress a che punto è, Today cosa tocca oggi.'],
       ['Il rito', 'La mattina scegli le task, durante il giorno le spunti, la sera guardi cosa hai fatto.'],
       ['Aggiungere', 'Scrivi nella riga in fondo e premi Invio: resta il cursore, così ne aggiungi tante di fila.'],
@@ -26,6 +27,7 @@ export const GUIDES = {
     titolo: 'Guida · Pipe',
     icona: '🌱',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['Visioni', 'Contenitori tinti col loro colore. Racchiudono le viste di un progetto.'],
       ['Nuova visione / vista', 'Usa i pulsanti ＋ o il pulsante flottante ＋ in basso a destra.'],
       ['Colore visione', 'Tocca il pallino colorato accanto al titolo della visione.'],
@@ -43,6 +45,7 @@ export const GUIDES = {
     titolo: 'Guida · Tree',
     icona: '🌳',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['Albero', 'Tutte le viste in gerarchia: radice in alto a sinistra, figli indentati.'],
       ['Aprire il contenuto', 'Tocca un nodo: si apre il pannello rapido con il contenuto della vista.'],
       ['Modifica veloce', 'Nel pannello puoi modificare i blocchi al volo, senza aprire l’editor completo.'],
@@ -55,6 +58,7 @@ export const GUIDES = {
     titolo: 'Guida · Links',
     icona: '🕸️',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['Mappa', 'Ogni vista è un nodo; ogni link interno ((Nome vista)) o [[Nome vista]] scritto nel testo diventa una linea di collegamento.'],
       ['Pianeti con gravità', 'I nodi si respingono e gli archi li attirano: le viste molto collegate sono più grandi e “pesano” di più.'],
       ['Sposta i nodi', 'Trascina un nodo per riposizionarlo: il resto della mappa si riassesta da solo.'],
@@ -67,6 +71,7 @@ export const GUIDES = {
     titolo: 'Guida · Progress',
     icona: '📊',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['Bacheca', 'Le viste divise per fase: Idee, Progettazione, In corso, Revisione, Completato.'],
       ['Spostare una vista', 'Trascina la card nella colonna della fase desiderata.'],
       ['Evidenziazione', 'La colonna sotto il dito si illumina: al rilascio la vista finisce lì.'],
@@ -79,6 +84,7 @@ export const GUIDES = {
     titolo: 'Guida · Editor',
     icona: '✍️',
     righe: [
+      ['Ovunque', 'Ctrl+K apre la ricerca rapida da qualunque schermata: cerca fra i titoli e i contenuti di tutte le viste e fra le task di oggi, ↑↓ per scegliere, ↵ per aprire. Alt+1…5 salta alla scheda (Today · Pipe · Tree · Links · Progress). Da telefono c’è il pulsante 🔍 in alto.'],
       ['Blocchi', 'Ogni riga è un blocco markdown. Invio crea un nuovo blocco; il ＋ sulla riga ne inserisce uno subito sotto (anche in mezzo).'],
       ['Textbox', 'La casella di una riga cresce da sola col testo; trascina l’angolo in basso a destra per allargarla ancora.'],
       ['Modifica / copia / seleziona', 'Click su una riga = modifica; doppio click = copia; triplo tap = modalità selezione. Da PC: rotellina del mouse su una riga = crea una riga subito sotto.'],
@@ -97,7 +103,7 @@ export const GUIDES = {
       ['Riordinare', 'Trascina un blocco in alto o in basso per spostarlo.'],
       ['Annulla / ripeti', 'Ctrl+Z e Ctrl+Y (o i pulsanti ↶ ↷).'],
       ['Uscire', 'Da PC premi Esc: chiude prima la modifica di una riga (salvandola) o la selezione, poi la vista.'],
-      ['Focus', 'Il pulsante 🎯 nasconde la toolbar per scrivere senza distrazioni.'],
+      ['Focus', 'Il pulsante 🎯 nasconde la toolbar per scrivere senza distrazioni e accende il timer Pomodoro (25+5, regolabile fino a 50+10). Il timer si può tenere acceso ovunque dal menu ☰ → 🍅 Timer Pomodoro; mentre gira, il tempo restante compare anche nel titolo della scheda del browser.'],
     ],
   },
 }

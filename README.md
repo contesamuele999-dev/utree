@@ -13,7 +13,8 @@ PWA installabile su PC, tablet e smartphone. React + Vite + Supabase, deploy su 
 - **Vista Mappa** commutabile: **2.5D**, **mappa mentale** (radiale), **albero**. Filtro per livello gerarchico.
 - **Vista Pipeline** stile Google Keep.
 - **Scheda Livelli** — trascina le viste per cambiare ramo/livello (con conferma).
-- **Modalità Focus + Pomodoro** — timer 25+5 editabile fino a 50+10, con suggerimenti di pausa.
+- **Ricerca rapida (Ctrl+K)** — una sola casella per saltare a qualunque vista (per titolo o per contenuto) o task di oggi, da qualsiasi schermata. Da telefono c’è il pulsante 🔍 in alto. `Alt+1…5` cambia scheda.
+- **Modalità Focus + Pomodoro** — timer 25+5 editabile fino a 50+10, con suggerimenti di pausa. Si accende dal menu ☰ → *🍅 Timer Pomodoro* (o entrando in Focus da dentro una vista); mentre gira, il tempo restante compare anche nel titolo della scheda del browser.
 - **Login multi-utente** — ogni utente vede solo i propri dati (Supabase + Row Level Security).
 - **Google Calendar** — ogni utente collega il proprio account Google dal **Profilo**; le righe con scadenza si sincronizzano come eventi (create/aggiornate/eliminate insieme alla scadenza).
 - **Progetti in team** — condividi una visione con un team, scegliendo se gli altri possono solo vederla o anche modificarla. Il permesso si imposta per tutto il team e, quando serve, **per singola persona**. Menu ☰ → *Team e condivisioni*.
@@ -29,6 +30,15 @@ npm run dev
 ```
 
 Apri l'indirizzo mostrato. Senza configurare Supabase parte in **modalità DEMO** locale.
+
+Se il `.env` è già configurato ma vuoi comunque provare l'app **senza toccare il cloud**
+(niente login, dati solo nel browser):
+
+```bash
+npm run demo
+```
+
+Legge `.env.demo`, che azzera le variabili Supabase: il `.env` normale resta intatto.
 
 ---
 
@@ -92,12 +102,18 @@ Permette a ogni utente di collegare il **proprio** account Google e sincronizzar
 ```
 src/
   lib/        supabase.js · store.js (cloud+demo) · auth.jsx · markdown.jsx
-  views/      Editor · MapView · Pipeline · Levels · Pomodoro
+              localcache.js (anti-perdita) · offline.js (snapshot + coda) · today.js
+  views/      Editor · Today · Pipeline · Tree · Links · Progress · Stats · Pomodoro …
   pages/      Auth · Legal (privacy + termini)
-  App.jsx     orchestratore (mondi, viste, hyperlink, focus)
+  App.jsx     orchestratore (visioni, viste, hyperlink, focus, ricerca rapida)
 supabase_schema.sql   schema DB + Row Level Security
 migrazione_team.sql   team, membri e condivisione dei progetti (RLS estesa)
 ```
+
+Il primo caricamento porta solo il flusso principale (Today · Pipe · editor); le schermate
+secondarie (Tree, Links, Progress, Statistiche, Team, Profilo, guida, backup, import da Keep)
+arrivano al primo uso come pezzi separati e restano in cache. L'editor viene pre-scaricato
+appena l'app è ferma, così aprire una nota resta istantaneo.
 
 ---
 
