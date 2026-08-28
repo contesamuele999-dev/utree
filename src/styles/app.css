@@ -649,8 +649,18 @@ a { color: var(--accent); text-decoration: none; }
   flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
   background: var(--panel); color: var(--text-dim); font-size: 13px;
 }
+.view-search-nav {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); font-size: 16px; line-height: 1;
+}
 .block.search-dim { opacity: .32; }
 .block.search-hit { background: color-mix(in srgb, var(--green-bright) 14%, var(--bg-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green-bright) 40%, transparent); }
+/* risultato corrente della ricerca: vince anche sui colori delle scadenze */
+.blocks-list .block.search-current {
+  background: color-mix(in srgb, var(--green-bright) 28%, var(--bg-2));
+  box-shadow: inset 0 0 0 2px var(--green-bright);
+  scroll-margin-block: 96px;
+}
 
 /* ---------- Scadenze delle righe: sfondo colorato in base alla vicinanza ---------- */
 /* colori scadenza (un solo posto da ritoccare) */

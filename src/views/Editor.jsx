@@ -170,6 +170,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [saveState, setSaveState] = useState('idle')   // idle | saving | saved | local
   const [clipCount, setClipCount] = useState(SECTION_CLIP.length)
   const [search, setSearch] = useState('')             // ricerca fra le righe DENTRO questa vista
+  const [matchPos, setMatchPos] = useState(0)          // risultato corrente della ricerca (0-based)
   const [duePick, setDuePick] = useState(null)         // id della riga di cui si sta impostando la scadenza
   const [bulkDue, setBulkDue] = useState(false)        // popup scadenza per le righe selezionate (Ctrl+D in selezione)
   const [jumpId, setJumpId] = useState(null)           // riga a cui scrollare (arrivo da ricerca fra viste)
@@ -1703,13 +1704,52 @@ ${rowsHtml}
 
   // ---- ricerca dentro la vista: evidenzia le righe che contengono il testo cercato ----
   const sq = search.trim().toLowerCase()
-  const matchSet = useMemo(() => {
-    if (!sq) return null
-    const s = new Set()
-    blocks.forEach(b => { if ((b.text || '').toLowerCase().includes(sq)) s.add(b.id) })
-    return s
+  // id dei risultati NELL'ORDINE delle righe: servono sia a evidenziarli sia a scorrerli uno per uno
+  const matchIds = useMemo(() => {
+    if (!sq) return []
+    return blocks.filter(b => (b.text || '').toLowerCase().includes(sq)).map(b => b.id)
   }, [sq, blocks])
-  const matchCount = matchSet ? matchSet.size : 0
+  const matchSet = useMemo(() => (sq ? new Set(matchIds) : null), [sq, matchIds])
+  const matchCount = matchIds.length
+  // risultato corrente: se la lista si accorcia (righe modificate) si riparte dal primo
+  const matchIdx = matchCount ? Math.min(matchPos, matchCount - 1) : 0
+  const currentMatchId = matchCount ? matchIds[matchIdx] : null
+  const matchForce = useRef(false)   // il prossimo scroll arriva da ‹ › ? allora centra sempre
+
+  // Porta una riga sotto gli occhi: `force` la centra comunque (navigazione fra i
+  // risultati); altrimenti si muove solo se la riga è fuori schermo (mentre si digita).
+  const bringBlockIntoView = (id, force) => {
+    const el = rootRef.current?.querySelector(`[data-block-id="${id}"]`)
+    if (!el) return
+    if (!force) {
+      const r = el.getBoundingClientRect()
+      const h = window.innerHeight || document.documentElement.clientHeight
+      if (r.top >= 96 && r.bottom <= h - 24) return   // già visibile: non spostiamo la pagina
+    }
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch { /* ignore */ }
+  }
+
+  // cambiando il testo cercato si riparte dal primo risultato
+  useEffect(() => { setMatchPos(0) }, [sq])
+
+  // il risultato corrente si fa sempre vedere (digitando, solo se è fuori schermo)
+  useEffect(() => {
+    if (!currentMatchId) return
+    const force = matchForce.current
+    matchForce.current = false
+    const t = setTimeout(() => bringBlockIntoView(currentMatchId, force), 60)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMatchId])
+
+  // ‹ › fra i risultati: gira in tondo (dall'ultimo si torna al primo)
+  const gotoMatch = (delta) => {
+    if (!matchCount) return
+    if (matchCount === 1) { bringBlockIntoView(currentMatchId, true); return }
+    matchForce.current = true
+    // forma funzionale: due ↵ ravvicinati avanzano di due (non ripartono dallo stesso indice)
+    setMatchPos(p => (Math.min(p, matchCount - 1) + delta + matchCount) % matchCount)
+  }
 
   // auto-altezza della textarea: cresce col contenuto (anche con testo mandato a capo) così
   // si vede TUTTO il testo della riga in un colpo solo. Con box-sizing:border-box lo
@@ -2110,9 +2150,29 @@ ${rowsHtml}
         <span className="view-search-ico">🔍</span>
         <input className="view-search-input" ref={searchRef} value={search}
           onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); if (search) setSearch(''); else e.currentTarget.blur() } }}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { e.stopPropagation(); if (search) setSearch(''); else e.currentTarget.blur(); return }
+            // ↵ / ↓ = risultato successivo · ⇧↵ / ↑ = precedente (la barra resta attiva)
+            if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              if (!matchCount) return
+              e.preventDefault(); e.stopPropagation()
+              gotoMatch(e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey) ? -1 : 1)
+            }
+          }}
           placeholder="Cerca in questa vista…" />
-        {sq && <span className="view-search-count">{matchCount} ris.</span>}
+        {sq && (
+          <span className="view-search-count">
+            {matchCount > 1 ? `${matchIdx + 1}/${matchCount}` : `${matchCount} ris.`}
+          </span>
+        )}
+        {matchCount > 1 && (
+          <>
+            <button className="view-search-nav" title="Risultato precedente (⇧↵)" aria-label="Risultato precedente"
+              onMouseDown={e => e.preventDefault()} onClick={() => gotoMatch(-1)}>‹</button>
+            <button className="view-search-nav" title="Risultato successivo (↵)" aria-label="Risultato successivo"
+              onMouseDown={e => e.preventDefault()} onClick={() => gotoMatch(1)}>›</button>
+          </>
+        )}
         {search && <button className="view-search-clear" title="Pulisci" onClick={() => setSearch('')}>✕</button>}
       </div>
 
@@ -2139,7 +2199,7 @@ ${rowsHtml}
         return (
         <div key={b.id} className="block-wrap">
         <div data-block-id={b.id} data-noswipe=""
-          className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '') + (b.check ? ' has-check' : '') + (b.check && b.done ? ' row-done' : '')}
+          className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (b.id === currentMatchId ? ' search-current' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '') + (b.check ? ' has-check' : '') + (b.check && b.done ? ' row-done' : '')}
           draggable={editing !== b.id && (!selectMode || selected.has(b.id))}
           onDragStart={e => onDragStart(e, b.id)}
           onDragOver={e => onDragOver(e, b.id)}

@@ -88,7 +88,7 @@ export const GUIDES = {
       ['Blocchi', 'Ogni riga è un blocco markdown. Invio crea un nuovo blocco; il ＋ sulla riga ne inserisce uno subito sotto (anche in mezzo).'],
       ['Textbox', 'La casella di una riga cresce da sola col testo; trascina l’angolo in basso a destra per allargarla ancora.'],
       ['Modifica / copia / seleziona', 'Click su una riga = modifica; doppio click = copia; triplo tap = modalità selezione. Da PC: rotellina del mouse su una riga = crea una riga subito sotto.'],
-      ['Ricerca', 'La barra 🔍 cerca fra le righe: le corrispondenze restano evidenziate, le altre sbiadite. Basta iniziare a digitare per riempirla in automatico.'],
+      ['Ricerca', 'La barra 🔍 cerca fra le righe: le corrispondenze restano evidenziate, le altre sbiadite. Basta iniziare a digitare per riempirla in automatico. Con più risultati compare il contatore 2/7 e le frecce ‹ ›: ↵ va al successivo, ⇧↵ al precedente (anche ↑↓), e la vista scorre da sola sul risultato.'],
       ['Elimina riga', 'Tocca l’icona 🗑 sulla riga: finisce nel Cestino, recuperabile per 7 giorni. ⌫ svuota solo il contenuto.'],
       ['Immagini', 'Il pulsante 🖼 sulla riga allega un’immagine: si vede come miniatura; toccala per aprirla a schermo intero (da lì puoi rimuoverla).'],
       ['Cestino', 'Il pulsante 🗑 Cestino mostra le righe eliminate di recente, con ripristino.'],
