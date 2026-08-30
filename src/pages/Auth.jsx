@@ -2,10 +2,20 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth.jsx'
 import { REMEMBER_KEY } from '../lib/supabase.js'
 
+// Chi arriva dal link di un invito porta con se' l'indirizzo a cui l'invito e'
+// stato mandato: `?invito=tizio@esempio.it`. Precompilarlo non e' una comodita',
+// e' la condizione perche' l'invito funzioni — si aggancia SOLO all'account
+// registrato con quella email (vedi utree_collega_inviti in migrazione_team.sql).
+function emailInvitata() {
+  try { return new URLSearchParams(window.location.search).get('invito') || '' }
+  catch { return '' }
+}
+
 export default function Auth() {
   const { signIn, signUp, isDemo } = useAuth()
-  const [mode, setMode] = useState('in')
-  const [email, setEmail] = useState('')
+  const invitato = emailInvitata()
+  const [mode, setMode] = useState(invitato ? 'up' : 'in')
+  const [email, setEmail] = useState(invitato)
   const [pw, setPw] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -36,6 +46,14 @@ export default function Auth() {
         {isDemo && (
           <p className="demo-badge" style={{display:'inline-block',marginBottom:16}}>
             Modalità DEMO locale — configura Supabase per il login reale
+          </p>
+        )}
+
+        {invitato && (
+          <p style={{fontSize:13,lineHeight:1.5,color:'var(--green-bright)',margin:'0 0 16px'}}>
+            Sei stato invitato in un team su uTree.
+            Crea l’account con <b>{invitato}</b> (o accedi, se ce l’hai già):
+            i progetti condivisi compariranno da soli.
           </p>
         )}
 

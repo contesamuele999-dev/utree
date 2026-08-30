@@ -127,8 +127,67 @@ export const creaTeam = (nome, userId) => insert('team', { nome: nome || 'Nuovo 
 export const rinominaTeam = (id, nome) => store.update('team', id, { nome })
 export const eliminaTeam = (id) => store.remove('team', id)
 
-export const invitaMembro = (teamId, email, ruolo = 'membro') =>
-  insert('team_membro', { team_id: teamId, email: (email || '').trim().toLowerCase(), ruolo, stato: 'invitato' })
+// ---- inviti: la riga nel database E l'email ------------------------------
+// Per molto tempo invitare qualcuno voleva dire soltanto scrivere una riga in
+// `team_membro`: nessuno avvisava l'invitato, che non riceveva niente e non
+// poteva sapere di essere stato invitato. L'invito "funzionava" solo se per caso
+// quella persona si registrava a uTree con la stessa email.
+// Adesso l'email parte davvero, da una Edge Function (supabase/functions/invita-team):
+// la chiave del servizio di posta non puo' stare nel browser.
+//
+// L'email pero' e' un di piu', non la sostanza: l'invito e' gia' salvato e valido
+// anche se la posta non parte (funzione non ancora pubblicata, quota finita,
+// dominio non verificato). In quel caso non si finge che sia tutto a posto: si
+// restituisce il motivo, e la pagina Team offre il link da mandare a mano.
+
+// Il link che porta l'invitato dentro. La pagina di accesso legge `?invito=`
+// e precompila l'email: e' il dettaglio che fa la differenza, perche' l'invito
+// si aggancia solo se ci si registra con QUELL'indirizzo.
+export function linkInvito(email) {
+  const base = (typeof window === 'undefined')
+    ? '/'
+    : window.location.origin + (import.meta.env.BASE_URL || '/')
+  return base.replace(/\/*$/, '/') + '?invito=' + encodeURIComponent(email || '')
+}
+
+// Testo pronto per WhatsApp/Telegram/client di posta, quando l'email automatica
+// non e' partita e il link tocca mandarlo a mano.
+export function testoInvito(email, nomeTeam) {
+  return [
+    `Ti ho invitato nel team "${nomeTeam || 'uTree'}" su uTree.`,
+    `Apri questo link e crea l'account con questo indirizzo (${email}):`,
+    linkInvito(email),
+  ].join('\n')
+}
+
+// Spedisce (o rispedisce) l'email di invito. Non lancia mai: torna sempre
+// { ok, errore } perche' chi chiama deve poter distinguere "spedita" da
+// "invito salvato ma email no" e dirlo all'utente.
+export async function inviaEmailInvito(membroId) {
+  if (!hasSupabase) return { ok: false, errore: 'in modalità demo le email non partono' }
+  try {
+    const { data, error } = await supabase.functions.invoke('invita-team', { body: { membroId } })
+    if (error) {
+      // `error` di functions.invoke non porta il corpo della risposta: il motivo
+      // vero (chiave mancante, dominio non verificato) sta li' dentro.
+      let dettaglio = ''
+      try { dettaglio = (await error.context?.json?.())?.errore || '' } catch { /* niente corpo */ }
+      return { ok: false, errore: dettaglio || error.message || 'Invio non riuscito.' }
+    }
+    if (data?.errore) return { ok: false, errore: data.errore }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, errore: e?.message || 'Invio non riuscito.' }
+  }
+}
+
+// Crea l'invito e prova a spedirlo. Torna { membro, emailInviata, errore }.
+export async function invitaMembro(teamId, email, ruolo = 'membro') {
+  const pulita = (email || '').trim().toLowerCase()
+  const membro = await insert('team_membro', { team_id: teamId, email: pulita, ruolo, stato: 'invitato' })
+  const esito = await inviaEmailInvito(membro?.id)
+  return { membro, emailInviata: esito.ok, errore: esito.errore }
+}
 export const cambiaRuolo = (membroId, ruolo) => store.update('team_membro', membroId, { ruolo })
 export const rimuoviMembro = (membroId) => store.remove('team_membro', membroId)
 

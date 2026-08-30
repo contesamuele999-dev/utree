@@ -3,6 +3,7 @@ import {
   PERMESSI, etichettaPermesso, permessoVisione, permessoDelMembro, mieiTeamIds,
   creaTeam, rinominaTeam, eliminaTeam, invitaMembro, cambiaRuolo, rimuoviMembro,
   condividiConTeam, revocaCondivisione, impostaEccezione,
+  inviaEmailInvito, linkInvito, testoInvito,
 } from '../lib/team.js'
 
 // ============================================================
@@ -25,6 +26,7 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
   const [apri, setApri] = useState(null)        // id del progetto col pannello condivisione aperto
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState(null)          // { ok, text }
+  const [copiato, setCopiato] = useState('')    // id del membro di cui si e' appena copiato il link
 
   const ctx = { userId, teams, membri, condivisioni }
   const mieiTeam = useMemo(() => {
@@ -58,6 +60,35 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
     esegui('team', async () => { await creaTeam(nome, userId); setNuovoTeam('') }, `Team “${nome}” creato.`)
   }
 
+  // Copia il link dell'invito negli appunti. `document.execCommand` come ripiego:
+  // `navigator.clipboard` non esiste fuori dai contesti sicuri e su alcuni browser
+  // in-app, e proprio li' il link serve.
+  const copiaLink = async (m) => {
+    const testo = linkInvito(m.email)
+    try { await navigator.clipboard.writeText(testo) }
+    catch {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = testo; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove()
+      } catch { window.prompt('Copia il link dell’invito:', testo); return }
+    }
+    setCopiato(m.id)
+    setTimeout(() => setCopiato(c => (c === m.id ? '' : c)), 2500)
+  }
+
+  // Rispedisce l'email a un invito già salvato (l'email precedente non è arrivata,
+  // oppure la funzione di invio è stata pubblicata solo adesso).
+  const reinvia = (m) => {
+    setBusy('re-' + m.id); setMsg(null)
+    inviaEmailInvito(m.id).then(({ ok, errore }) => {
+      setMsg(ok
+        ? { ok: true, text: `Email reinviata a ${m.email}.` }
+        : { ok: false, text: `Email non inviata (${errore}). Manda tu il link con “Copia link”.` })
+      setBusy('')
+    })
+  }
+
   const aggiungiMembro = (e, team) => {
     e.preventDefault()
     const email = (invito[team.id] || '').trim().toLowerCase()
@@ -65,9 +96,20 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
     if (membriDi(team.id).some(m => (m.email || '').toLowerCase() === email)) {
       setMsg({ ok: false, text: 'Questa persona è già nel team.' }); return
     }
-    esegui('inv-' + team.id,
-      async () => { await invitaMembro(team.id, email); setInvito(s => ({ ...s, [team.id]: '' })) },
-      `${email} invitato. Vedrà i progetti condivisi al primo accesso a uTree con questa email.`)
+    // L'invito è salvato comunque: l'email è un servizio in più, non la sostanza.
+    // Se non parte lo si dice chiaramente, invece di lasciar credere che sia arrivata.
+    setBusy('inv-' + team.id); setMsg(null)
+    invitaMembro(team.id, email)
+      .then(async ({ emailInviata, errore }) => {
+        setInvito(s => ({ ...s, [team.id]: '' }))
+        await onRefresh?.()
+        setMsg(emailInviata
+          ? { ok: true, text: `Invito inviato a ${email}: troverà l’email con il link per entrare.` }
+          : { ok: false, text: `${email} è stato invitato, ma l’email non è partita (${errore}). `
+              + `Usa “Copia link” qui sotto e mandaglielo tu: funziona uguale.` })
+      })
+      .catch(err => setMsg({ ok: false, text: err?.message || 'Invito non riuscito.' }))
+      .finally(() => setBusy(''))
   }
 
   return (
@@ -132,6 +174,20 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
                   <li key={m.id} className={'team-membro' + (m.stato === 'invitato' ? ' in-attesa' : '')}>
                     <span className="team-email">{m.email}{m.user_id === userId ? ' (tu)' : ''}</span>
                     <span className="team-tag">{m.stato === 'attivo' ? 'attivo' : 'invito in attesa'}</span>
+                    {mio && m.stato !== 'attivo' && (
+                      <>
+                        <button type="button" className="pillbtn mini" disabled={busy === 're-' + m.id}
+                          title="Rispedisci l’email di invito a questa persona"
+                          onClick={() => reinvia(m)}>{busy === 're-' + m.id ? '…' : '✉ Reinvia'}</button>
+                        <button type="button" className="pillbtn mini"
+                          title="Copia il link dell’invito, per mandarlo tu via chat o email"
+                          onClick={() => copiaLink(m)}>{copiato === m.id ? '✓ copiato' : '🔗 Copia link'}</button>
+                        <a className="pillbtn mini" title="Apri il tuo programma di posta con il messaggio già scritto"
+                          href={`mailto:${encodeURIComponent(m.email)}`
+                            + `?subject=${encodeURIComponent(`Invito nel team "${t.nome}" su uTree`)}`
+                            + `&body=${encodeURIComponent(testoInvito(m.email, t.nome))}`}>✍ Scrivi</a>
+                      </>
+                    )}
                     {mio && (
                       <>
                         <select className="input mini" value={m.ruolo}
@@ -160,6 +216,12 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
                     {busy === 'inv-' + t.id ? '…' : 'Invita'}
                   </button>
                 </form>
+              )}
+              {mio && (
+                <p className="hint" style={{ marginTop: 6 }}>
+                  Riceverà un’email con il link per entrare. Deve registrarsi
+                  <b> con questo stesso indirizzo</b>, altrimenti l’invito non si aggancia.
+                </p>
               )}
             </div>
           )

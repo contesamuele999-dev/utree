@@ -22,12 +22,26 @@ loadTheme()
 
 // L'ErrorBoundary sta FUORI da tutto: un errore di render, senza, smonta
 // l'intero albero React e lascia lo schermo nero senza spiegazioni.
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </ErrorBoundary>
-  </React.StrictMode>
-)
+//
+// Ma l'ErrorBoundary e' un componente React: puo' intervenire SOLO da qui in giu'.
+// Se qualcosa esplode PRIMA — un import fallito, un modulo che lancia mentre viene
+// valutato, `createRoot` stesso — React non monta mai e `#root` resta vuoto: la
+// schermata bianca senza una riga di spiegazione. Per quel caso c'e' il try/catch
+// qui sotto, che disegna a mano (senza React) la stessa via d'uscita.
+try {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ErrorBoundary>
+    </React.StrictMode>
+  )
+} catch (err) {
+  console.error('[uTree] avvio fallito:', err)
+  window.__utreeBootError = err
+  // `mostraErroreAvvio` e' definita inline in index.html, quindi esiste sempre:
+  // e' l'unico pezzo di UI che non dipende da nessun modulo caricato.
+  window.mostraErroreAvvio?.(err?.message || String(err))
+}

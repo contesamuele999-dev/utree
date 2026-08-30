@@ -60,6 +60,105 @@ Legge `.env.demo`, che azzera le variabili Supabase: il `.env` normale resta int
 5. (Opzionale) **Authentication → Providers**: tieni attivo Email. Per test rapidi puoi disattivare la conferma email.
 6. `npm run dev` → ora il login è reale.
 
+> ⚠️ **Le email di Supabase non arrivano?** Il servizio di posta *integrato* di Supabase
+> è pensato solo per lo sviluppo: poche email all'ora e, sui progetti nuovi, consegna
+> **solo agli indirizzi del team del progetto**. Tutte le altre vengono scartate in
+> silenzio: nessun errore, nessuna email. Vedi la sezione **Email** qui sotto.
+
+---
+
+## Email (Maileroo)
+
+uTree manda email in **due occasioni diverse**, e non passano dallo stesso posto.
+Servono entrambe le configurazioni: farne una sola lascia l'altra metà muta.
+
+| Quando | Chi la manda | Come si configura |
+|---|---|---|
+| Conferma registrazione, reset password | Supabase Auth | **SMTP** Maileroo nel pannello Supabase |
+| Invito a un team | la Edge Function `invita-team` | **API** Maileroo, chiave nei secrets |
+
+Prima di tutto, una volta sola: su [maileroo.com](https://maileroo.com) aggiungi il tuo
+dominio in **Domains** e completa la verifica DNS (SPF, DKIM, e il record di ritorno che
+ti indica). Finché il dominio non risulta verificato, Maileroo rifiuta i messaggi che
+partono da quell'indirizzo — ed è la causa più comune di "non arriva niente".
+
+### 1. Email di sistema (registrazione, reset password)
+
+Sono di Supabase, non di uTree: si attivano dandogli un SMTP vero al posto di quello di prova.
+
+1. Maileroo → **Domains** → il tuo dominio → **SMTP Accounts** → crea un account
+   (l'alias, es. `noreply`, e la password che ti mostra: la password si vede una volta sola).
+2. Supabase → **Project Settings → Authentication → SMTP Settings** → *Enable Custom SMTP*:
+
+   | Campo | Valore |
+   |---|---|
+   | Host | `smtp.maileroo.com` |
+   | Port | `587` (STARTTLS) — in alternativa `465` SSL o `2525` |
+   | Username | le credenziali dell'account SMTP appena creato |
+   | Password | la password generata da Maileroo |
+   | Sender email | `noreply@tuodominio.it` (sul dominio verificato) |
+   | Sender name | `uTree` |
+
+   > Se `587` viene bloccato dalla rete, prova `2525`. Copia lo username **esattamente**
+   > come lo mostra Maileroo: a seconda dell'account è l'alias (`noreply`) o l'indirizzo
+   > completo, e sbagliarlo dà un errore di autenticazione, non un errore di invio.
+3. **Save**, poi prova a registrare un account nuovo: l'email di conferma deve arrivare.
+
+### 2. Email di invito al team
+
+Invitare qualcuno scrive una riga in `team_membro` **e** gli manda l'email con il link per
+entrare. L'email non può partire dal browser (servirebbe la chiave dell'API, che in un
+bundle pubblico è una chiave regalata): parte dalla Edge Function
+[`supabase/functions/invita-team`](./supabase/functions/invita-team/index.ts), che usa
+l'**API v2 di Maileroo**.
+
+Finché la funzione non è pubblicata, **gli inviti funzionano lo stesso** — sono salvati e
+validi — ma l'email non parte: la pagina Team lo dice chiaramente e offre
+*Copia link* / *Scrivi* per mandarlo a mano.
+
+1. Maileroo → **Email API** → crea una **Sending Key** per il dominio verificato e copiala
+   (anche questa si vede una volta sola).
+2. Installa la CLI di Supabase se non ce l'hai
+   ([guida](https://supabase.com/docs/guides/local-development/cli/getting-started)), poi
+   dalla cartella del progetto:
+
+   ```bash
+   supabase login
+   supabase link --project-ref <il-tuo-project-ref>
+   supabase functions deploy invita-team
+   ```
+
+   Il *project ref* è la sigla nell'URL del progetto Supabase
+   (`https://<project-ref>.supabase.co`).
+3. Imposta i tre segreti:
+
+   ```bash
+   supabase secrets set MAILEROO_API_KEY=la-tua-sending-key
+   supabase secrets set UTREE_MITTENTE="uTree <invito@tuodominio.it>"
+   supabase secrets set UTREE_APP_URL=https://<tuo-utente>.github.io/utree/
+   ```
+
+   - `UTREE_MITTENTE` deve stare sul dominio **verificato**, altrimenti Maileroo rifiuta.
+   - `UTREE_APP_URL` è la base dei link di invito: se sbagliata, l'invitato atterra su una
+     pagina che non esiste. Deve finire con `/`.
+   - Dopo un `secrets set` la funzione riparte da sola: non serve rifare il deploy.
+4. Nell'app: **☰ → Team e condivisioni** → invita un indirizzo. Il messaggio di esito dice
+   se l'email è partita **davvero**: la funzione controlla il campo `success` della risposta,
+   perché Maileroo risponde `200 OK` anche quando scarta il messaggio.
+
+Se qualcosa non torna, il motivo è nei log:
+
+```bash
+supabase functions logs invita-team
+```
+
+L'invitato riceve un link tipo `…/utree/?invito=anna@esempio.it`: la pagina di accesso
+precompila l'indirizzo. **Deve registrarsi con quella email**, perché è su quella che
+l'invito si aggancia (`utree_collega_inviti` in `migrazione_team.sql`).
+
+La funzione non usa la `service_role` key: riusa il JWT di chi invita, quindi a decidere
+chi può invitare in quale team restano le RLS, come per il resto dell'app.
+
 ---
 
 ## Setup Google Calendar (opzionale)
@@ -106,9 +205,19 @@ src/
   views/      Editor · Today · Pipeline · Tree · Links · Progress · Stats · Pomodoro …
   pages/      Auth · Legal (privacy + termini)
   App.jsx     orchestratore (visioni, viste, hyperlink, focus, ricerca rapida)
+index.html  scheletro + rete di sicurezza dell'avvio (vedi sotto)
+supabase/functions/invita-team/   email di invito al team (Edge Function)
 supabase_schema.sql   schema DB + Row Level Security
 migrazione_team.sql   team, membri e condivisione dei progetti (RLS estesa)
 ```
+
+**Se l'app non si apre.** Tre reti, una dentro l'altra, perché una schermata bianca
+non dice niente a nessuno: l'`ErrorBoundary` prende gli errori di render; il `try`
+attorno a `createRoot` in `main.jsx` prende quelli del montaggio; il pannello inline
+in `index.html` prende tutto il resto — bundle non scaricato, modulo che esplode
+mentre viene valutato, avvio che non risponde entro 10 secondi. L'ultimo non importa
+nulla e non dipende da niente, quindi è l'unico che regge anche quando non regge
+nient'altro: offre *Ricarica* e *Svuota la cache dell'app*.
 
 Il primo caricamento porta solo il flusso principale (Today · Pipe · editor); le schermate
 secondarie (Tree, Links, Progress, Statistiche, Team, Profilo, guida, backup, import da Keep)

@@ -7,9 +7,112 @@
     <meta name="theme-color" content="#1f7a4d" />
     <meta name="description" content="uTree - Note ad albero per imprenditori. Visioni, Viste, Progresso." />
     <title>uTree</title>
+    <style>
+      /* Stile del solo pannello di emergenza: vive qui dentro perche' deve
+         funzionare anche quando il CSS dell'app non e' stato caricato. */
+      /* `position: fixed` non e' un vezzo: il CSS dell'app da' a #root un'altezza
+         piena, quindi un pannello nel flusso normale finirebbe sotto la piega — e
+         chi ha davanti una pagina bianca non pensa a scorrere. Qui copre tutto,
+         sopra tutto, comunque sia andato il caricamento del resto. */
+      #boot-fallback { display: none; position: fixed; inset: 0; z-index: 2147483647;
+        box-sizing: border-box; overflow: auto; padding: 28px 22px;
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: #0f1411; color: #e7f0ea; }
+      #boot-fallback h1 { font-size: 20px; margin: 0 0 10px; }
+      #boot-fallback p { color: #9fb4a8; max-width: 46ch; margin: 0 0 14px; }
+      #boot-fallback pre { white-space: pre-wrap; word-break: break-word; font-size: 12px;
+        color: #9fb4a8; background: #18241d; border: 1px solid #2a3b30; border-radius: 10px; padding: 10px; margin: 0 0 16px; }
+      #boot-fallback button { font: inherit; font-size: 14px; cursor: pointer; margin: 0 8px 8px 0;
+        padding: 10px 16px; border-radius: 999px; border: 1px solid #2a3b30; background: #1d2e24; color: #e7f0ea; }
+      #boot-fallback button.primario { background: #1f7a4d; border-color: #1f7a4d; color: #fff; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- ============================================================
+         RETE DI SICUREZZA DELL'AVVIO
+         L'ErrorBoundary di React copre gli errori di RENDER, ma solo dopo che
+         React e' montato. Se il bundle non arriva (service worker vecchio che
+         punta a un pezzo di codice non piu' pubblicato, rete che cade a meta'
+         download) o se un modulo lancia mentre viene valutato, `#root` resta
+         vuoto e l'utente vede una PAGINA BIANCA, senza niente da toccare.
+         Questo blocco non importa nulla e non puo' fallire con l'app: e' l'ultima
+         cosa che resta in piedi, e offre le due mosse che risolvono davvero
+         (ricarica, e svuota la cache dell'app).
+         ============================================================ -->
+    <div id="boot-fallback">
+      <h1>uTree non è riuscito ad aprirsi</h1>
+      <p>
+        Di solito è una versione vecchia rimasta in cache dopo un aggiornamento.
+        Le tue note non sono state toccate: sono in locale e sul cloud.
+      </p>
+      <pre id="boot-fallback-msg"></pre>
+      <button class="primario" onclick="location.reload()">Ricarica</button>
+      <button onclick="svuotaCacheApp()">Svuota la cache dell’app</button>
+    </div>
+
+    <script>
+      (function () {
+        var mostrato = false
+        window.mostraErroreAvvio = function (msg) {
+          if (mostrato) return
+          // Se React ha gia' disegnato qualcosa, l'app e' viva: un pezzo di codice
+          // arrivato male (una schermata secondaria) e' affare dell'ErrorBoundary,
+          // non di questo pannello, che altrimenti comparirebbe SOTTO l'app viva.
+          var r = document.getElementById('root')
+          if (r && r.childElementCount > 0) return
+          mostrato = true
+          var box = document.getElementById('boot-fallback')
+          var pre = document.getElementById('boot-fallback-msg')
+          if (pre) pre.textContent = msg || 'Il codice dell\u2019app non e\u2019 stato caricato.'
+          if (box) box.style.display = 'block'
+          if (r) r.style.display = 'none'   // niente mezza app rotta dietro al pannello
+        }
+
+        // Cancella service worker + cache e ricarica: e' la cura del 90% dei casi.
+        window.svuotaCacheApp = function () {
+          var fatto = function () { location.reload() }
+          try {
+            var lavori = []
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              lavori.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                return Promise.all(rs.map(function (r) { return r.unregister() }))
+              }))
+            }
+            if (window.caches && caches.keys) {
+              lavori.push(caches.keys().then(function (ks) {
+                return Promise.all(ks.map(function (k) { return caches.delete(k) }))
+              }))
+            }
+            Promise.all(lavori).then(fatto, fatto)
+          } catch (e) { fatto() }
+        }
+
+        // Il codice non e' nemmeno arrivato (404 del bundle dopo un aggiornamento,
+        // MIME sbagliato, download interrotto). Gli errori di CARICAMENTO di uno
+        // <script> non risalgono: si intercettano solo in fase di CATTURA sulla
+        // finestra. Niente id sul tag: Vite lo riscrive in fase di build.
+        window.addEventListener('error', function (ev) {
+          var t = ev && ev.target
+          if (!t || t === window) return                       // errore JS normale: non e' roba nostra
+          var tipo = (t.tagName || '').toUpperCase()
+          if (tipo !== 'SCRIPT' && tipo !== 'LINK') return
+          window.mostraErroreAvvio("Codice non scaricato: " + (t.src || t.href || ""))
+        }, true)
+
+        // Il modulo e' partito ma non ha montato niente: qualcosa ha lanciato
+        // durante la valutazione. Se dopo 10s `#root` e' ancora vuoto, e' bianco.
+        setTimeout(function () {
+          var root = document.getElementById('root')
+          if (root && root.childElementCount === 0) {
+            var e = window.__utreeBootError
+            window.mostraErroreAvvio(e ? (e.message || String(e)) : 'L\u2019app non ha risposto durante l\u2019avvio.')
+          }
+        }, 10000)
+      })()
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

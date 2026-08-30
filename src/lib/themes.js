@@ -34,6 +34,14 @@ export const THEMES = {
 
 const KEY = 'utree-theme'
 
+// localStorage non e' MAI garantito: in navigazione privata, con i cookie di terze
+// parti bloccati o — molto piu' spesso qui — quando la quota e' piena, sia getItem
+// sia setItem LANCIANO. `loadTheme()` gira nel modulo di avvio PRIMA del render:
+// un'eccezione qui non fa vedere un errore, fa vedere una pagina BIANCA, perche'
+// `ReactDOM.render` non viene mai raggiunto. Da qui in poi lo storage e' opzionale.
+const leggi = (k) => { try { return localStorage.getItem(k) } catch { return null } }
+const scrivi = (k, v) => { try { localStorage.setItem(k, v) } catch { /* quota o storage negato */ } }
+
 export function applyTheme(id) {
   const t = THEMES[id] || THEMES.foresta
   const root = document.documentElement
@@ -47,11 +55,13 @@ export function applyTheme(id) {
   // browser continuava a disegnare scrollbar chiare, che spiccavano come un dito
   // in un occhio.
   root.style.colorScheme = t.chiaro ? 'light' : 'dark'
-  localStorage.setItem(KEY, id)
+  scrivi(KEY, id)
 }
 
 export function loadTheme() {
-  const id = localStorage.getItem(KEY) || 'foresta'
-  applyTheme(id)
-  return id
+  const id = leggi(KEY) || 'foresta'
+  // il tema e' una preferenza, non un requisito: se qualcosa va storto si parte
+  // con quello predefinito, ma si parte.
+  try { applyTheme(id) } catch { /* niente tema, pazienza */ }
+  return THEMES[id] ? id : 'foresta'
 }
