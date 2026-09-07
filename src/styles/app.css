@@ -280,7 +280,10 @@ a { color: var(--accent); text-decoration: none; }
 .add-btn:hover { background: var(--panel-2); }
 
 /* ---------- Editor ---------- */
-.editor { max-width: min(760px, 100%); margin: 0 auto; padding: 18px 16px 120px; outline: none; animation: editorIn .24s cubic-bezier(.22,.7,.3,1); }
+/* --kb-pad: quanto la tastiera del telefono copre della vista (lo misura l'editor
+   con visualViewport). Serve da spazio in fondo: senza, le ultime righe non
+   possono essere sollevate sopra i tasti perché lo scorrimento è già a fondo corsa. */
+.editor { max-width: min(760px, 100%); margin: 0 auto; padding: 18px 16px calc(120px + var(--kb-pad, 0px)); outline: none; animation: editorIn .24s cubic-bezier(.22,.7,.3,1); }
 .blocks-list { max-width: 100%; }
 @keyframes editorIn { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
 .editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: nowrap; }
@@ -954,7 +957,7 @@ a { color: var(--accent); text-decoration: none; }
 
   .anchor-chip { max-width: 52vw; padding: 5px 10px; font-size: 12px; }
 
-  .editor { padding: 14px 12px 130px; }
+  .editor { padding: 14px 12px calc(130px + var(--kb-pad, 0px)); }
   .editor-title { font-size: 22px; }
   /* Su mobile le barre strumenti restano su UNA riga e scorrono in orizzontale:
      così l'icona 🔗 non va a capo creando una riga extra che copriva la barra

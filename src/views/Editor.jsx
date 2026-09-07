@@ -15,6 +15,7 @@ const MAX_INDENT = 6
 const INDENT_PX = 22     // larghezza di ogni guida di rientro (= un livello)
 const INDENT_STEP = 26   // px di trascinamento orizzontale per cambiare livello
 const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
+const MARG_EDIT = 14     // aria fra la riga in scrittura e i bordi della fascia visibile
 
 // Clipboard delle SEZIONI a livello di modulo: sopravvive al cambio vista,
 // così puoi tagliare/copiare una sezione da una vista e incollarla in un'altra.
@@ -216,18 +217,23 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   useEffect(() => { if (!editing) { clearTimeout(refFlashTimer.current); setRefFlash(s => s.size ? new Set() : s) } }, [editing])
 
   // Mobile: quando si apre la tastiera la riga in modifica può finire nascosta
-  // (soprattutto se è fra le ultime). Portiamola sempre al centro dello schermo
-  // sia all'apertura sia quando la tastiera cambia l'altezza visibile (visualViewport).
+  // (soprattutto se è fra le ultime). La riportiamo dentro la fascia visibile
+  // (vedi keepEditVisible) all'apertura, dopo la comparsa della tastiera e ogni
+  // volta che la tastiera cambia l'altezza utile (visualViewport).
   useEffect(() => {
     if (!editing) return
-    const bring = () => {
-      const el = editRef.current
-      if (el) { try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch { /* ignore */ } }
-    }
-    const t = setTimeout(bring, 320)   // attende la comparsa della tastiera
+    const bring = () => { spazioTastiera(); keepEditVisible(true) }
+    const r = requestAnimationFrame(bring)   // da desktop non c'è nessuna tastiera da attendere
+    const t1 = setTimeout(bring, 180)
+    const t2 = setTimeout(bring, 420)        // attende la comparsa della tastiera
     const vv = window.visualViewport
     vv?.addEventListener('resize', bring)
-    return () => { clearTimeout(t); vv?.removeEventListener('resize', bring) }
+    return () => {
+      cancelAnimationFrame(r); clearTimeout(t1); clearTimeout(t2)
+      vv?.removeEventListener('resize', bring)
+      rootRef.current?.style.removeProperty('--kb-pad')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
 
   // aggiorna periodicamente i colori/etichette delle scadenze (una volta al minuto)
@@ -706,14 +712,29 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     commit(next)
   }
 
-  const addBlock = (afterId = null, text = '') => {
+  // Fine del gruppo nidificato che parte dalla riga `i`: indice dell'ULTIMA riga
+  // rientrata sotto di lei (se non ne ha, la riga stessa).
+  const fineGruppo = (arr, i) => {
+    if (i < 0) return i
+    const base = arr[i].indent || 0
+    let j = i
+    while (j + 1 < arr.length && (arr[j + 1].indent || 0) > base) j++
+    return j
+  }
+
+  // `dopoGruppo` = arriva dal ＋ fra le righe (o dalla rotellina): se la riga ha
+  // delle righe nidificate, la nuova nasce DOPO l'ultima del gruppo invece di
+  // incastrarsi fra la riga e i suoi rami — dove, essendo meno rientrata, si
+  // sarebbe portata via i figli.
+  const addBlock = (afterId = null, text = '', dopoGruppo = false) => {
     if (bloccato) return
     const src = afterId != null ? blocks.find(b => b.id === afterId) : blocks[blocks.length - 1]
     const nb = { id: uid(), text, indent: src?.indent || 0 }
     let next
     if (afterId == null) next = [...blocks, nb]
     else {
-      const idx = blocks.findIndex(b => b.id === afterId)
+      let idx = blocks.findIndex(b => b.id === afterId)
+      if (dopoGruppo) idx = fineGruppo(blocks, idx)
       next = [...blocks.slice(0, idx + 1), nb, ...blocks.slice(idx + 1)]
     }
     commit(next)
@@ -1877,6 +1898,52 @@ ${rowsHtml}
 
   const scroller = () => rootRef.current?.closest('.content') || document.scrollingElement
 
+  // ---- LA RIGA CHE SI STA SCRIVENDO RESTA SOTTO GLI OCCHI (telefono) ---------
+  // La tastiera copre la metà bassa dello schermo ma NON rimpicciolisce la pagina
+  // (su iOS cambia solo il visualViewport): il browser continua a credere che la
+  // riga sia visibile e scrollIntoView non muove niente — si scrive alla cieca.
+  // Allora la fascia davvero visibile la calcoliamo qui: dal fondo dell'intestazione
+  // ancorata al bordo alto della tastiera.
+  const bandaVisibile = () => {
+    const sc = scroller()
+    if (!sc) return null
+    const r = sc.getBoundingClientRect()
+    const vv = window.visualViewport
+    const top = Math.max(r.top, vv ? vv.offsetTop : 0) + stickyOffset()
+    const bottom = Math.min(r.bottom, vv ? vv.offsetTop + vv.height : (window.innerHeight || document.documentElement.clientHeight))
+    return bottom - top > 60 ? { sc, top, bottom } : null
+  }
+
+  // Spazio in fondo alla vista pari a quanto la tastiera copre: senza, le ULTIME
+  // righe non possono essere sollevate (lo scorrimento è già a fondo corsa) e
+  // restano dietro ai tasti per quanto si scorra.
+  const spazioTastiera = () => {
+    const el = rootRef.current, sc = scroller(), vv = window.visualViewport
+    if (!el || !sc) return
+    const coperto = vv ? sc.getBoundingClientRect().bottom - (vv.offsetTop + vv.height) : 0
+    el.style.setProperty('--kb-pad', Math.max(0, Math.round(coperto)) + 'px')
+  }
+
+  // Sposta la vista del minimo indispensabile per riportare la riga in modifica
+  // dentro la fascia visibile. Priorità al FONDO della riga: è dove sta il cursore
+  // mentre si scrive ed è il lato che la tastiera mangia per primo.
+  const keepEditVisible = (smooth = false) => {
+    const el = editRef.current
+    const b = bandaVisibile()
+    if (!el || !b) return
+    const r = el.getBoundingClientRect()
+    let dy = 0
+    if (r.bottom > b.bottom - MARG_EDIT) dy = r.bottom - (b.bottom - MARG_EDIT)
+    else if (r.top < b.top + MARG_EDIT) dy = r.top - (b.top + MARG_EDIT)
+    if (Math.abs(dy) < 2) return
+    const max = Math.max(0, b.sc.scrollHeight - b.sc.clientHeight)
+    const top = Math.max(0, Math.min(max, b.sc.scrollTop + dy))
+    if (Math.abs(top - b.sc.scrollTop) < 2) return
+    stopFling()
+    if (smooth) { try { b.sc.scrollTo({ top, behavior: 'smooth' }); return } catch { /* ignore */ } }
+    b.sc.scrollTop = top
+  }
+
   const goToAnchor = (id) => {
     const sc = scroller()
     const el = rootRef.current?.querySelector(`[data-block-id="${id}"]`)
@@ -2262,7 +2329,7 @@ ${rowsHtml}
               className="row-input"
               ref={el => { editRef.current = el; if (el) { autosize(el); if (document.activeElement !== el) el.focus({ preventScroll: true }); if (pendingCaret.current != null) { const p = Math.min(pendingCaret.current, el.value.length); try { el.selectionStart = el.selectionEnd = p } catch { /* ignore */ } pendingCaret.current = null } } }}
               value={b.text} rows={1}
-              onInput={e => { autosize(e.target); try { e.target.scrollIntoView({ block: 'nearest' }) } catch { /* ignore */ } }}
+              onInput={e => { autosize(e.target); keepEditVisible() }}
               onChange={e => { autosize(e.target); setText(b.id, e.target.value); detectSlash(b.id, e.target) }}
               onKeyUp={e => detectSlash(b.id, e.currentTarget)}
               onClick={e => detectSlash(b.id, e.currentTarget)}
@@ -2348,7 +2415,7 @@ ${rowsHtml}
               onPointerDown={e => onRowDown(e, b)} onPointerMove={onRowMove}
               onPointerUp={onRowUp} onPointerCancel={onRowCancel}
               onMouseDown={e => { if (e.button === 1) e.preventDefault() }}
-              onAuxClick={e => { if (e.button === 1) { e.preventDefault(); addBlock(b.id) } }}
+              onAuxClick={e => { if (e.button === 1) { e.preventDefault(); addBlock(b.id, '', true) } }}
               onClick={e => activateBlock(b, e)}
               title="1 tocco: modifica · 2 tocchi: copia · 3 tocchi: selezione · rotellina: nuova riga sotto · tieni premuto per trascinare · swipe ←/→ per nidificare">
               {b.text ? <RenderedBlock text={b.text} onWikilink={selectMode ? undefined : onWikilink} blocks={blocks} index={bi} /> : <span style={{color:'var(--text-dim)'}}>Vuoto — clicca per scrivere</span>}
@@ -2407,7 +2474,7 @@ ${rowsHtml}
         {!selectMode && !focusMode && !bloccato && (
           <button className="row-add-between" data-noswipe="" tabIndex={-1}
             title="Inserisci una riga qui" aria-label="Inserisci una riga qui"
-            onClick={() => addBlock(b.id)}>
+            onClick={() => addBlock(b.id, '', true)}>
             <span className="row-add-between-ico">＋</span>
           </button>
         )}
