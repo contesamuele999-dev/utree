@@ -196,6 +196,59 @@ Permette a ogni utente di collegare il **proprio** account Google e sincronizzar
 
 ---
 
+## Server MCP (agenti IA)
+
+`scripts/mcp-server.mjs` apre uTree agli agenti che parlano **MCP** — Claude Code e
+simili. L'agente legge l'albero, cerca dentro le note, scrive nelle viste, crea rami
+e gestisce Today: le stesse cose che fai tu dall'app, dette a parole.
+
+Entra su Supabase **con il tuo account**, non con una chiave di servizio: valgono le
+stesse Row Level Security del browser, quindi l'agente vede esattamente i tuoi dati e
+nient'altro. Nessuna dipendenza: JSON-RPC su stdio e `fetch`, serve solo Node 18+.
+
+Nel `.env` (che non finisce su git) aggiungi le credenziali con cui entri in uTree:
+
+```
+UTREE_EMAIL=tu@esempio.it
+UTREE_PASSWORD=la-tua-password
+```
+
+L'URL e la anon key li riusa da `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`, già
+presenti. Poi registra il server una volta sola:
+
+```bash
+claude mcp add utree -- node "PERCORSO/uTree/scripts/mcp-server.mjs"
+```
+
+Per provarlo senza agente, a mano:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"utree_status","arguments":{}}}' | node scripts/mcp-server.mjs
+```
+
+**Cosa sa fare** (19 strumenti):
+
+| Area | Strumenti |
+|---|---|
+| Orientarsi | `utree_status` · `utree_albero` · `utree_cerca` |
+| Viste | `utree_vista_leggi` · `_crea` · `_scrivi` · `_aggiorna` · `_elimina` |
+| Struttura | `utree_vita_crea` · `utree_visione_crea` · `utree_link_crea` · `utree_link_elimina` |
+| Today | `utree_today` · `utree_task_crea` · `_aggiorna` · `_elimina` · `utree_giorno` |
+| Ricorrenti | `utree_ricorrenze` · `utree_ricorrenza_crea` |
+
+Due scelte che vale la pena conoscere:
+
+- **Il testo è markdown, una riga = un blocco**, e due spazi di rientro = un livello di
+  nidificazione. È la stessa forma che vedi nell'editor.
+- **Riscrivendo una vista (`modo: "sostituisci"`) le righe rimaste identiche tengono il
+  loro id.** Le task teletrasportate in Today e gli eventi di Google Calendar puntano al
+  blocco per id: rigenerarli tutti spezzerebbe quei legami.
+
+Le operazioni distruttive chiedono conferma esplicita: `utree_vista_elimina` non parte
+senza `conferma: true`.
+
+---
+
 ## Struttura
 
 ```
@@ -205,6 +258,7 @@ src/
   views/      Editor · Today · Pipeline · Tree · Links · Progress · Stats · Pomodoro …
   pages/      Auth · Legal (privacy + termini)
   App.jsx     orchestratore (visioni, viste, hyperlink, focus, ricerca rapida)
+scripts/mcp-server.mjs   server MCP: uTree per gli agenti IA (vedi sotto)
 index.html  scheletro + rete di sicurezza dell'avvio (vedi sotto)
 supabase/functions/invita-team/   email di invito al team (Edge Function)
 supabase_schema.sql   schema DB + Row Level Security
