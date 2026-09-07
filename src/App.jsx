@@ -31,6 +31,7 @@ const Terms = lazy(() => import('./pages/Legal.jsx').then(m => ({ default: m.Ter
 import { DEFAULT_STAGE } from './lib/stages.js'
 import { cacheVistaLocal, markVistaSynced, mergeVisteWithCache, flushDirtyToCloud, cestinoDisabled, disableCestinoCloud, isMissingCestino, pruneVistaCache, dropVistaCache } from './lib/localcache.js'
 import { saveSnapshot, loadSnapshot, replayOutbox, outboxCount, purgeLocalData } from './lib/offline.js'
+import { prunePiegature, dropPiegature } from './lib/piegature.js'
 import { todayKey, pianificaRollover, pianificaRicorrenti, proposte, tenutaRicorrenti } from './lib/today.js'
 import { caricaTeam, collegaInviti, mappaPermessi, puoModificare } from './lib/team.js'
 
@@ -216,6 +217,7 @@ export default function App() {
     baseBlocchi.current = Object.fromEntries(allViste.map(v => [v.id, v.blocchi || []]))
     const merged = mergeVisteWithCache(allViste)   // ripristina modifiche locali non ancora confermate
     pruneVistaCache(new Set(allViste.map(v => v.id)))   // alleggerisce: la cache viene riscritta a ogni battuta
+    prunePiegature(new Set(allViste.map(v => v.id)))   // rami piegati di viste che non esistono più
     setViste(merged)
     const ids = new Set(merged.map(v => v.id))
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
@@ -1574,7 +1576,7 @@ export default function App() {
                   messaggio: 'Cancella snapshot, coda di sincronizzazione e cache delle viste salvati su QUESTO dispositivo, poi ricarica tutto dal cloud. Non tocca nulla su Supabase.'
                     + (inCoda ? `\n\nAttenzione: ci sono ${inCoda} modifiche non ancora salite. Andrebbero perse.` : ''),
                   okLabel: 'Ripulisci e ricarica',
-                  onOk: async () => { purgeLocalData(); dropVistaCache(); await reload() },
+                  onOk: async () => { purgeLocalData(); dropVistaCache(); dropPiegature(); await reload() },
                 })
               }}>🧹 Ripulisci le copie locali</button>
               <button onClick={doExport} disabled={busy==='export'}>⬇ Esporta backup (JSON)</button>

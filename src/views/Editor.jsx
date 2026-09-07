@@ -7,6 +7,7 @@ import { store } from '../lib/store.js'
 import { prepareImage } from '../lib/images.js'
 import * as gcal from '../lib/gcal.js'
 import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
+import { leggiPiegature, scriviPiegature } from '../lib/piegature.js'
 import { dettaturaDisponibile, startDettatura, stopDettatura } from '../lib/dictation.js'
 
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
@@ -181,7 +182,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [slash, setSlash] = useState(null)             // { blockId, start, query, sel } menu scorciatoie "/"
   const [menuId, setMenuId] = useState(null)           // id della riga con il menu azioni (⋮) aperto su mobile
   const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
-  const [collapsed, setCollapsed] = useState(() => new Set())   // righe coi sottorami piegati (nascosti)
+  const [collapsed, setCollapsed] = useState(() => leggiPiegature(vista.id))   // righe coi sottorami piegati (nascosti)
   const [dettando, setDettando] = useState(null)                // id della riga in dettatura vocale (null = spenta)
   const [ancoraAttiva, setAncoraAttiva] = useState(null)        // ancora (titolo) in cima allo schermo
   const stickyRef = useRef(null)                        // gruppo ancorato in alto: serve a misurarne l'ingombro
@@ -401,7 +402,8 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     setTitle(vista.titolo || '')
     setTrashRaw(cleanTrash)
     setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
-    setSlash(null); setMenuId(null); setRowSheet(null); setCollapsed(new Set())
+    setSlash(null); setMenuId(null); setRowSheet(null)
+    setCollapsed(leggiPiegature(vista.id))   // i rami chiusi restano chiusi, anche rientrando
     prevChars.current = totalChars(vista.blocchi)
     undoStack.current = []; redoStack.current = []
     if ((vista.cestino || []).length !== cleanTrash.length) {
@@ -707,8 +709,21 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     if (s.size) refFlashTimer.current = setTimeout(() => setRefFlash(new Set()), 1400)
   }
 
+  // Cambia il livello di una riga PORTANDOSI DIETRO il suo ramo. Spostando la sola
+  // capofila i figli restavano al loro rientro e finivano adottati dalla riga sopra:
+  // il ramo si sfaldava senza che nessuno l'avesse chiesto.
   const setIndent = (id, indent) => {
-    const next = blocks.map(b => b.id === id ? { ...b, indent } : b)
+    const i = blocks.findIndex(b => b.id === id)
+    if (i === -1) return
+    const delta = indent - (blocks[i].indent || 0)
+    if (!delta) return
+    const fine = fineGruppo(blocks, i)
+    const maxRamo = Math.max(...blocks.slice(i, fine + 1).map(b => b.indent || 0))
+    const shift = delta > 0 ? Math.min(delta, MAX_INDENT - maxRamo) : delta
+    if (!shift) return
+    const next = blocks.map((b, j) => (j >= i && j <= fine)
+      ? { ...b, indent: Math.max(0, Math.min(MAX_INDENT, (b.indent || 0) + shift)) }
+      : b)
     commit(next)
   }
 
@@ -1292,6 +1307,44 @@ ${rowsHtml}
     return Math.min(MAX_INDENT, (arr[index - 1].indent || 0) + 1)
   }
 
+  // Sposta la riga `id` con TUTTO il suo ramo (le righe più rientrate che la seguono)
+  // subito prima di `targetId`, cambiandone il livello di `stepDelta`. I rientri
+  // RELATIVI del ramo restano identici: il ramo si sposta, non si sfalda.
+  // Se il bersaglio è dentro al ramo trascinato non ci si muove: un ramo non può
+  // finire dentro se stesso.
+  // `baseIndent` = livello della capofila a inizio gesto (il trascinamento tocco lo
+  // misura da lì, non dal valore corrente).
+  const conRamo = (arr, id, targetId, stepDelta = 0, baseIndent = null) => {
+    const from = arr.findIndex(b => b.id === id)
+    if (from === -1) return arr
+    const fine = fineGruppo(arr, from)
+    const gruppo = arr.slice(from, fine + 1)
+    const ids = new Set(gruppo.map(b => b.id))
+    const resto = arr.filter(b => !ids.has(b.id))
+    let to = from   // niente bersaglio (o bersaglio dentro al ramo): resta dov'è
+    if (targetId && !ids.has(targetId)) {
+      const i = resto.findIndex(b => b.id === targetId)
+      to = i === -1 ? resto.length : i
+    }
+    let mosse = gruppo
+    if (stepDelta) {
+      const testa = baseIndent != null ? baseIndent : (gruppo[0].indent || 0)
+      const tetto = to <= 0 ? 0 : Math.min(MAX_INDENT, (resto[to - 1].indent || 0) + 1)
+      const maxRamo = Math.max(...gruppo.map(b => b.indent || 0))
+      const voluto = Math.min(Math.max(0, testa + stepDelta), tetto)
+      let shift = voluto - (gruppo[0].indent || 0)
+      if (shift > 0) shift = Math.min(shift, MAX_INDENT - maxRamo)   // il ramo non sfonda il livello massimo
+      if (shift) mosse = gruppo.map(b => ({ ...b, indent: Math.max(0, Math.min(MAX_INDENT, (b.indent || 0) + shift)) }))
+    }
+    return [...resto.slice(0, to), ...mosse, ...resto.slice(to)]
+  }
+
+  // quante righe nidificate viaggiano insieme alla capofila (0 = riga sola)
+  const ramiDi = (id) => {
+    const i = blocks.findIndex(b => b.id === id)
+    return i === -1 ? 0 : fineGruppo(blocks, i) - i
+  }
+
   // ---- drag & drop: riordino (verticale) + nidificazione (orizzontale) ----
   const onDragStart = (e, id) => {
     setDragId(id)
@@ -1304,7 +1357,7 @@ ${rowsHtml}
       img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
       e.dataTransfer.setDragImage(img, 0, 0)
     } catch { /* ignore */ }
-    setGhost({ x: e.clientX, y: e.clientY, text: blocks.find(b => b.id === id)?.text || '' })
+    setGhost({ x: e.clientX, y: e.clientY, text: blocks.find(b => b.id === id)?.text || '', rami: ramiDi(id) })
   }
   const onDragOver = (e, id) => { e.preventDefault(); if (id !== dropId) setDropId(id) }
 
@@ -1336,21 +1389,7 @@ ${rowsHtml}
       return
     }
     const stepDelta = Math.round((clientX - dragStartX.current) / INDENT_STEP)
-    let next = [...blocks]
-    if (dragId !== targetId) {
-      const from = next.findIndex(b => b.id === dragId)
-      const to = next.findIndex(b => b.id === targetId)
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-    }
-    if (stepDelta !== 0) {
-      const idx = next.findIndex(b => b.id === dragId)
-      const cur = next[idx]?.indent || 0
-      const want = Math.max(0, cur + stepDelta)
-      const capped = Math.min(want, maxIndentFor(next, idx))
-      next = next.map(b => b.id === dragId ? { ...b, indent: capped } : b)
-    }
-    commit(next)
+    commit(conRamo(blocks, dragId, targetId, stepDelta))
   }
 
   const onDrop = (e, id) => {
@@ -1426,7 +1465,7 @@ ${rowsHtml}
       d.active = true
       try { el.setPointerCapture?.(d.pointerId) } catch { /* ignore */ }
       setDragId(b.id)
-      setGhost({ x: d.lastX, y: d.lastY, text: d.text })
+      setGhost({ x: d.lastX, y: d.lastY, text: d.text, rami: ramiDi(b.id) })
       try { navigator.vibrate?.(12) } catch { /* ignore */ }
     }, LONGPRESS_MS)
     rowDrag.current = d
@@ -1450,7 +1489,7 @@ ${rowsHtml}
     try { e.currentTarget.setPointerCapture?.(d.pointerId) } catch { /* ignore */ }
     rowDrag.current = d
     setDragId(b.id)
-    setGhost({ x: e.clientX, y: e.clientY, text: b.text })
+    setGhost({ x: e.clientX, y: e.clientY, text: b.text, rami: ramiDi(b.id) })
     try { navigator.vibrate?.(12) } catch { /* ignore */ }
   }
 
@@ -1539,18 +1578,7 @@ ${rowsHtml}
     // era un drag: riordino (verticale) + eventuale cambio livello (delta orizzontale)
     rowJustHandled.current = true
     const stepDelta = Math.round(dx / INDENT_STEP)
-    let next = [...blocks]
-    if (d.over && d.over !== d.id) {
-      const from = next.findIndex(x => x.id === d.id)
-      const to = next.findIndex(x => x.id === d.over)
-      if (from !== -1 && to !== -1) { const [m] = next.splice(from, 1); next.splice(to, 0, m) }
-    }
-    if (stepDelta !== 0) {
-      const idx = next.findIndex(x => x.id === d.id)
-      const want = Math.max(0, d.startIndent + stepDelta)
-      const capped = Math.min(want, maxIndentFor(next, idx))
-      next = next.map(x => x.id === d.id ? { ...x, indent: capped } : x)
-    }
+    const next = conRamo(blocks, d.id, d.over, stepDelta, d.startIndent)
     setDragId(null); setDropId(null); setGhost(null)
     commit(next)
   }
@@ -1862,9 +1890,28 @@ ${rowsHtml}
     return { figli, nascosti }
   }, [blocks, collapsed])
 
+  // Righe che stanno volando col trascinamento: la capofila E il suo ramo. Senza,
+  // sembrava di spostare una riga sola e ritrovarsi i figli altrove era una sorpresa.
+  const inVolo = useMemo(() => {
+    if (!dragId) return null
+    const i = blocks.findIndex(b => b.id === dragId)
+    if (i === -1) return null
+    return new Set(blocks.slice(i, fineGruppo(blocks, i) + 1).map(b => b.id))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragId, blocks])
+
   const toggleCollapse = (id) => setCollapsed(s => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
   })
+
+  // Le piegature restano com'erano: uscendo dalla vista (o chiudendo l'app) e
+  // rientrando, i rami chiusi sono ancora chiusi. Ricordiamo solo le righe che
+  // esistono davvero, così le righe cancellate non lasciano scorie.
+  useEffect(() => {
+    const vivi = new Set(blocks.map(b => b.id))
+    scriviPiegature(vista.id, [...collapsed].filter(id => vivi.has(id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed, vista.id])
 
   // ---- ANCORE: i titoli della vista come punti d'atterraggio -----------------
   // Ogni riga che è un titolo markdown (#, ##, ###…) diventa un'ancora: compare
@@ -2266,7 +2313,7 @@ ${rowsHtml}
         return (
         <div key={b.id} className="block-wrap">
         <div data-block-id={b.id} data-noswipe=""
-          className={'block' + (dragId === b.id ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (b.id === currentMatchId ? ' search-current' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '') + (b.check ? ' has-check' : '') + (b.check && b.done ? ' row-done' : '')}
+          className={'block' + (inVolo?.has(b.id) ? ' dragging' : '') + (dropId === b.id ? ' drop-target' : '') + (indent ? ' nested' : '') + (isSel ? ' selected' : '') + (editing === b.id ? ' editing' : '') + (matchSet && !isHit ? ' search-dim' : '') + (isHit ? ' search-hit' : '') + (b.id === currentMatchId ? ' search-current' : '') + (refFlash.has(bi) ? ' ref-flash' : '') + (jumpId === b.id ? ' jump-flash' : '') + (di ? ' ' + di.cls : '') + (b.check ? ' has-check' : '') + (b.check && b.done ? ' row-done' : '')}
           draggable={editing !== b.id && (!selectMode || selected.has(b.id))}
           onDragStart={e => onDragStart(e, b.id)}
           onDragOver={e => onDragOver(e, b.id)}
@@ -2589,7 +2636,12 @@ ${rowsHtml}
         )
       })()}
 
-      {ghost && <div className="drag-ghost" style={{ left: ghost.x + 14, top: ghost.y + 10 }}>{shortText(ghost.text)}</div>}
+      {ghost && (
+        <div className="drag-ghost" style={{ left: ghost.x + 14, top: ghost.y + 10 }}>
+          <span className="drag-ghost-txt">{shortText(ghost.text)}</span>
+          {ghost.rami > 0 && <span className="drag-ghost-rami">+{ghost.rami}</span>}
+        </div>
+      )}
       {toast && <div className="editor-toast">{toast}</div>}
     </div>
   )

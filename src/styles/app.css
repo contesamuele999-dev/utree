@@ -177,6 +177,17 @@ a { color: var(--accent); text-decoration: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   transform: translateZ(0);
 }
+/* Col contatore dei rami il fantasma diventa una riga a due pezzi. Il layout sta qui
+   e non su .drag-ghost perché quello serve anche a Tree e Progress, dove il figlio è
+   solo testo e l'ellissi funziona proprio perché NON è un contenitore flex. */
+.drag-ghost:has(.drag-ghost-rami) { display: inline-flex; align-items: center; gap: 7px; }
+.drag-ghost:has(.drag-ghost-rami) .drag-ghost-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* quante righe nidificate viaggiano insieme a quella trascinata */
+.drag-ghost-rami {
+  flex: 0 0 auto; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 800;
+  background: color-mix(in srgb, var(--green-bright) 18%, var(--panel-2));
+  color: var(--green-bright); border: 1px solid var(--green-deep);
+}
 .vision-block {
   margin: 14px 18px; border-radius: var(--radius); border: 1px solid var(--border);
   background: linear-gradient(160deg, color-mix(in srgb, var(--vcol) 14%, var(--panel-2)), var(--panel));
