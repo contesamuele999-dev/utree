@@ -37,6 +37,7 @@ const PREF_FATTE = 'utree-today-fatte-fondo'
 const MAX_INDENT = 6
 const INDENT_STEP = 26   // px di trascinamento orizzontale per cambiare livello
 const SWIPE_MIN = 42     // px minimi di uno swipe perché valga come rientro
+const PRESS_MEZZA = 420  // ms di pressione sulla casella per segnare "a metà"
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // Racchiude la prima occorrenza "libera" di `name` in un collegamento ((Nome)).
 function linkifyName(text, name) {
@@ -210,6 +211,34 @@ export default function Today({
   }
   const onRowCancel = () => { swipe.current = null; setSwipeDx(null) }
 
+  // ---- spunta: un'azione sola -------------------------------------------------
+  // Il click sulla casella chiude la task, punto. "A metà" resta raggiungibile
+  // ma come gesto secondario: pressione lunga sulla casella (anche da telefono),
+  // tasto destro, Alt/⇧+click, oppure il pulsante ◐ della riga.
+  const pressTimer = useRef(null)
+  const pressLunga = useRef(false)
+  const iniziaPressione = (t) => {
+    clearTimeout(pressTimer.current)
+    pressTimer.current = setTimeout(() => {
+      pressTimer.current = null
+      pressLunga.current = true
+      navigator.vibrate?.(8)        // conferma tattile dove c'è: la pressione è "scattata"
+      onToggle?.(t, 'mezza')
+    }, PRESS_MEZZA)
+  }
+  const finePressione = () => {
+    clearTimeout(pressTimer.current); pressTimer.current = null
+    // il click che segue la pressione lunga non deve chiudere la task; la
+    // bandierina si spegne da sola se quel click non arriva mai
+    if (pressLunga.current) setTimeout(() => { pressLunga.current = false }, 400)
+  }
+  useEffect(() => () => clearTimeout(pressTimer.current), [])
+
+  const clickSpunta = (e, t) => {
+    if (pressLunga.current) { pressLunga.current = false; return }
+    onToggle?.(t, (e.altKey || e.shiftKey) ? 'mezza' : 'fatta')
+  }
+
   useEffect(() => { if (editId && editRef.current) editRef.current.focus() }, [editId])
   useEffect(() => {
     try { localStorage.setItem(PREF_FATTE, riordinaFatte ? '1' : '0') } catch { /* quota */ }
@@ -347,15 +376,18 @@ export default function Today({
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; dragStartX.current = e.clientX; setDragId(t.id) }}
                 onDragEnd={() => { stopEdgeScroll(); setDragId(null); setOverId(null) }}>⠿</span>
 
-              {/* tre stati: da fare → a metà → fatta → da fare */}
+              {/* un click = fatta. Tenendo premuto (o col tasto destro) = a metà. */}
               <button className={'today-check' + (t.done ? ' done' : t.parziale ? ' mezza' : '')}
-                onClick={() => onToggle?.(t)}
+                onClick={e => clickSpunta(e, t)}
+                onPointerDown={() => iniziaPressione(t)}
+                onPointerUp={finePressione}
+                onPointerLeave={finePressione}
+                onPointerCancel={finePressione}
+                onContextMenu={e => { e.preventDefault(); onToggle?.(t, 'mezza') }}
                 aria-pressed={!!t.done}
                 title={t.done ? 'Fatta — clicca per riaprirla'
-                  : t.parziale ? 'A metà — clicca per completarla'
-                    : 'Da fare — clicca per segnarla a metà'}
-                aria-label={t.done ? 'Segna come da fare'
-                  : t.parziale ? 'Segna come completata' : 'Segna come fatta a metà'}>
+                  : 'Clicca: fatta · tieni premuto: a metà'}
+                aria-label={t.done ? 'Segna come da fare' : 'Segna come fatta'}>
                 <span className="today-box" />
               </button>
 
@@ -398,6 +430,13 @@ export default function Today({
               )}
 
               <div className="today-badges">
+                {/* il mezzo passo, visibile: quello che prima era il primo scatto
+                    del ciclo a tre ora è un pulsante suo, senza rubare il click */}
+                <button className={'iconbtn mini today-half' + (!t.done && t.parziale ? ' on' : '')}
+                  aria-pressed={!!(!t.done && t.parziale)}
+                  title={!t.done && t.parziale ? 'A metà — clicca per rimetterla da fare'
+                    : 'Segna a metà (o tieni premuta la casella)'}
+                  onClick={() => onToggle?.(t, 'mezza')}>◐</button>
                 {onIndent && (
                   <>
                     <button className="iconbtn mini" title="Riduci il rientro (⇧Tab)"

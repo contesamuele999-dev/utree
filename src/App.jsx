@@ -300,15 +300,21 @@ export default function App() {
     }
   }
 
-  // Tre stati, non due: da fare → a metà → fatta → da fare.
+  // Tre stati, non due: da fare, a metà, fatta. Ma NON in ciclo: spuntare è il
+  // gesto che si fa cento volte al giorno, e passare per "a metà" ogni volta
+  // costava un tocco a vuoto. Quindi due azioni distinte:
+  //   modo 'fatta' (il click normale) → da fare/a metà ⇄ fatta
+  //   modo 'mezza' (◐, pressione lunga, tasto destro, Alt+click) → ⇄ a metà
   // "A metà" non è chiusa (fa rollover come una task aperta), ma la giornata
   // se ne accorge: nella barra vale mezzo passo.
-  const toggleTask = async (t) => {
-    const patch = t.done
-      ? { done: false, parziale: false, done_at: null }              // fatta  → da fare
-      : t.parziale
-        ? { done: true, parziale: false, done_at: new Date().toISOString() }  // a metà → fatta
-        : { done: false, parziale: true, done_at: null }             // da fare → a metà
+  const toggleTask = async (t, modo = 'fatta') => {
+    const patch = modo === 'mezza'
+      ? (t.parziale && !t.done
+        ? { done: false, parziale: false, done_at: null }            // a metà → da fare
+        : { done: false, parziale: true, done_at: null })            // da fare/fatta → a metà
+      : t.done
+        ? { done: false, parziale: false, done_at: null }            // fatta → da fare
+        : { done: true, parziale: false, done_at: new Date().toISOString() }  // da fare/a metà → fatta
     setTask(ts => ts.map(x => x.id === t.id ? { ...x, ...patch } : x))
     inVolo(t.id, patch)
     try { await store.update('task', t.id, patch); fineVolo(t.id) }

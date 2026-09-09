@@ -1352,11 +1352,24 @@ a { color: var(--accent); text-decoration: none; }
 .today-item.done .today-text { text-decoration: line-through; color: var(--text-dim); }
 
 /* la spunta di Today ha TRE stati: vuota (da fare), mezza (◐), piena (✓).
-   È un <button> e non una checkbox proprio perché gli stati sono tre. */
+   È un <button> e non una checkbox proprio perché gli stati sono tre.
+   Ma il click ne raggiunge uno solo — "fatta" — perché è quello che si fa
+   cento volte al giorno: "a metà" sta sul pulsante ◐ e sulla pressione lunga.
+   touch-action/callout: da telefono la pressione lunga è nostra, non del
+   browser (niente menu di sistema, niente selezione del testo). */
 .today-check {
   flex: 0 0 auto; display: inline-flex; cursor: pointer;
   background: none; border: none; padding: 0; margin: 0;
+  touch-action: manipulation; user-select: none; -webkit-touch-callout: none;
 }
+/* ◐ — il mezzo passo. Sempre presente ma in secondo piano: si accende
+   quando la task è davvero a metà, o quando passi sulla riga. */
+.today-half { opacity: .38; transition: opacity .15s ease, color .15s ease; }
+.today-item:hover .today-half, .today-item:focus-within .today-half { opacity: .9; }
+.today-half.on { opacity: 1; color: var(--green-bright); border-color: var(--green-deep); }
+/* da telefono il pulsante sparisce: la riga è già stretta e la pressione lunga
+   sulla casella fa la stessa cosa senza rubare spazio al testo della task */
+@media (hover: none) { .today-half { display: none; } }
 .today-check input { position: absolute; opacity: 0; width: 0; height: 0; }
 .today-box {
   width: 20px; height: 20px; border-radius: 6px;
@@ -1377,6 +1390,11 @@ a { color: var(--accent); text-decoration: none; }
   background: linear-gradient(135deg, var(--green-bright), var(--green-deep));
   border-color: var(--green-deep);
 }
+/* micro-feedback: la casella "scatta" una volta sola, quando diventa piena */
+@keyframes today-check-pop {
+  0% { transform: scale(.7) } 60% { transform: scale(1.14) } 100% { transform: scale(1) }
+}
+.today-check.done .today-box { animation: today-check-pop .22s ease; }
 .today-check.done .today-box::after,
 .today-check input:checked + .today-box::after {
   content: '✓'; position: absolute; inset: 0; width: auto; background: none;
@@ -1439,6 +1457,7 @@ a { color: var(--accent); text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   .today-bar-fill { transition: none; }
   .today-bar-fill.full { animation: none; }
+  .today-check.done .today-box { animation: none; }
 }
 
 /* ---- checkbox di riga nell'editor (/check) ----
