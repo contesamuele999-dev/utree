@@ -4,7 +4,12 @@
 // riscrittura li rigenera tutti, quei legami si spezzano in silenzio.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { blocchiInTesto, testoInBlocchi, TOOLS } from '../../scripts/mcp-server.mjs'
+import { blocchiInTesto, testoInBlocchi, dataLocale, TOOLS } from '../../scripts/mcp-server.mjs'
+
+test('la data resta quella locale anche a mezzanotte e mezza (niente slittamento UTC)', () => {
+  assert.equal(dataLocale(new Date(2026, 8, 29, 0, 30)), '2026-09-29')
+  assert.equal(dataLocale(new Date(2026, 8, 29, 23, 59)), '2026-09-29')
+})
 
 test('una riga = un blocco, due spazi = un livello di rientro', () => {
   const b = testoInBlocchi('# Titolo\n- primo\n  - annidato\n\t- con tab')
