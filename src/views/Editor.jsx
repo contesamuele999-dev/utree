@@ -204,6 +204,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const pasteOneLine = useRef(false)     // Ctrl+Shift+V: il prossimo incolla resta su UNA riga
   const dettaSink = useRef(null)         // funzione (id, frase) sempre aggiornata: la usa il callback del microfono
   const micHold = useRef(false)          // pulsante microfono premuto: il blur non deve chiudere la riga
+  const dettaId = useRef(null)           // riga che riceve la dettatura: "a capo" la sposta sulla riga nuova
+  const [annulla, setAnnulla] = useState(null)   // { blocks, trash } prima dell'ultima eliminazione (avviso "Annulla")
+  const annullaTimer = useRef(null)
 
   useEffect(() => { if (editing) lastEdit.current = editing }, [editing])
 
@@ -395,17 +398,26 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // re-sync se cambia la vista aperta — o se `remoteRev` sale, cioè quando App ha
   // riletto dal cloud una versione diversa (modifica fatta su un altro dispositivo)
   // — più la pulizia del cestino oltre 7 giorni.
+  const vistaCaricata = useRef(null)
   useEffect(() => {
     const b = vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }]
     const cleanTrash = purgeTrash(vista.cestino)
     setBlocksRaw(b)
     setTitle(vista.titolo || '')
     setTrashRaw(cleanTrash)
-    setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
-    setSlash(null); setMenuId(null); setRowSheet(null)
-    setCollapsed(leggiPiegature(vista.id))   // i rami chiusi restano chiusi, anche rientrando
     prevChars.current = totalChars(vista.blocchi)
-    undoStack.current = []; redoStack.current = []
+    if (vistaCaricata.current === vista.id) {
+      // stessa vista, contenuto arrivato dal cloud: si tengono ricerca, piegature e
+      // Ctrl+Z; si tolgono solo dalla selezione le righe che non esistono più
+      const ids = new Set(b.map(x => x.id))
+      setSelected(sel => new Set([...sel].filter(id => ids.has(id))))
+    } else {
+      vistaCaricata.current = vista.id
+      setEditing(null); setSelectMode(false); setSelected(new Set()); setShowTrash(false); setSearch('')
+      setSlash(null); setMenuId(null); setRowSheet(null)
+      setCollapsed(leggiPiegature(vista.id))   // i rami chiusi restano chiusi, anche rientrando
+      undoStack.current = []; redoStack.current = []
+    }
     if ((vista.cestino || []).length !== cleanTrash.length) {
       onChange({ ...vista, blocchi: b, titolo: vista.titolo || '', cestino: cleanTrash })
     }
@@ -659,17 +671,30 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   // Le frasi riconosciute si accodano alla riga in modifica. Il callback del
   // microfono passa da `dettaSink`, che punta sempre alla versione fresca di
   // questa funzione: altrimenti dopo la prima frase scriverebbe su blocchi vecchi.
-  dettaSink.current = (id, frase) => {
-    const b = blocks.find(x => x.id === id)
-    if (!b) return
-    const testo = b.text ? b.text.replace(/\s+$/, '') + ' ' + frase : frase
-    setText(id, testo)
+  // Dire "a capo" o "nuova riga" = Invio: il resto va su una riga nuova sotto,
+  // e la dettatura prosegue lì. Così si detta un elenco intero senza mouse.
+  dettaSink.current = (frase) => {
+    const idx = blocks.findIndex(x => x.id === dettaId.current)
+    if (idx < 0) return
+    const b = blocks[idx]
+    const [primo, ...altri] = frase.split(/\s*\b(?:a capo|nuova riga)\b[.,]?\s*/i)
+    const next = blocks.slice()
+    if (primo) next[idx] = { ...b, text: b.text ? b.text.replace(/\s+$/, '') + ' ' + primo : primo }
+    const nuove = altri.map(t => ({ id: uid(), text: t, indent: b.indent || 0 }))
+    next.splice(idx + 1, 0, ...nuove)
+    if (nuove.length) {
+      pushUndo(blocks)
+      dettaId.current = nuove[nuove.length - 1].id
+      setDettando(dettaId.current); setEditing(dettaId.current)
+    }
+    setBlocks(next); persist(next, title, trash)
   }
   const toggleDettatura = (id) => {
     if (dettando) { stopDettatura(); setDettando(null); return }
-    if (!dettaturaDisponibile()) { avvisa('Dettatura non supportata da questo browser'); return }
+    if (!dettaturaDisponibile()) { avvisa('Dettatura non supportata da questo browser: usa Chrome o Edge'); return }
+    dettaId.current = id
     const ok = startDettatura({
-      onText: (frase) => dettaSink.current?.(id, frase),
+      onText: (frase) => dettaSink.current?.(frase),
       onEnd: () => setDettando(null),
       onError: (err) => {
         setDettando(null)
@@ -913,6 +938,19 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     setBlocks(nextBlocks); setTrash(nextTrash)
     setEditing(e => e === id ? null : e)
     persist(nextBlocks, title, nextTrash)
+    // righe vuote (Backspace) escono in silenzio; le altre offrono "Annulla" per qualche secondo
+    if (b?.text) {
+      setAnnulla({ blocks, trash })
+      clearTimeout(annullaTimer.current)
+      annullaTimer.current = setTimeout(() => setAnnulla(null), 5000)
+    }
+  }
+  const annullaElimina = () => {
+    if (!annulla) return
+    undoStack.current.pop()   // lo stato è già quello di prima: Ctrl+Z non deve ripeterlo
+    setBlocks(annulla.blocks); setTrash(annulla.trash)
+    persist(annulla.blocks, title, annulla.trash)
+    clearTimeout(annullaTimer.current); setAnnulla(null)
   }
 
   const restoreBlock = (tb) => {
@@ -2215,7 +2253,7 @@ ${rowsHtml}
             <li><b className="hint-cat" /> <span><code>/t2</code> titolo · <code>/lista</code> elenco · <code>/sep</code> linea · <code>/link</code> collegamento</span></li>
             <li><b className="hint-cat" /> <span><code>/oggi</code> <code>/domani</code> <code>/settimana</code> · <code>/calc</code> = formula (<code>=#1+#2</code>)</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+⇧+V</code> = incolla su <b>una riga sola</b> (normale <code>Ctrl+V</code> = una riga per capo)</span></li>
-            <li><b className="hint-cat" /> <span><b>🎤</b> o <code>Ctrl+⇧+D</code> = dettatura vocale sulla riga in modifica</span></li>
+            <li><b className="hint-cat" /> <span><b>🎤</b> o <code>Ctrl+⇧+D</code> = dettatura vocale · di' <b>"a capo"</b> per passare alla riga sotto</span></li>
 
             <li className="grp"><b className="hint-cat">Formule</b> <span>inizia con <code>=</code> per calcolare (es. <code>=2+3*4</code>, <code>=sqrt(9)</code>). Richiama altre righe con <code>#n</code>: <code>=#1+#2</code> somma i valori delle righe 1 e 2</span></li>
 
@@ -2360,7 +2398,9 @@ ${rowsHtml}
               onPointerDown={e => onGripDown(e, b)} onPointerMove={onRowMove}
               onPointerUp={onRowUp} onPointerCancel={onRowCancel}>⠿</span>
           )}
-          {editing === b.id && dettaturaDisponibile() && (
+          {/* sempre visibile: dove il browser non ha la dettatura il click lo spiega
+              (prima il pulsante spariva in silenzio, es. su Firefox da PC) */}
+          {editing === b.id && (
             <button className={'iconbtn mini' + (dettando === b.id ? ' on' : '')} data-noswipe=""
               title={dettando === b.id ? 'Ferma la dettatura (Ctrl+Shift+D)' : 'Detta con la voce (Ctrl+Shift+D)'}
               aria-pressed={dettando === b.id}
@@ -2506,6 +2546,10 @@ ${rowsHtml}
                     title="Sposta questa riga fra le task di oggi (/oggi · Ctrl+Shift+T). Esce dalla nota e finisce nel cestino, recuperabile."
                     onClick={() => { mandaOggi(b); setMenuId(null) }}>⚡</button>
                 )}
+                {editing !== b.id && (
+                  <button className="iconbtn row-mic" title="Detta con la voce in questa riga (Ctrl+Shift+D)"
+                    onClick={() => { setMenuId(null); setEditing(b.id); toggleDettatura(b.id) }}>🎤</button>
+                )}
                 <button className="iconbtn row-img" title="Allega un'immagine a questa riga"
                   onClick={() => { openImagePicker(b.id); setMenuId(null) }} disabled={imgBusy}>📷</button>
                 {b.text && (
@@ -2643,6 +2687,11 @@ ${rowsHtml}
         </div>
       )}
       {toast && <div className="editor-toast">{toast}</div>}
+      {annulla && !toast && (
+        <div className="editor-toast con-azione">Riga eliminata
+          <button type="button" onClick={annullaElimina}>Annulla</button>
+        </div>
+      )}
     </div>
   )
 }

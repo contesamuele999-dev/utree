@@ -131,6 +131,8 @@ export default function App() {
   const pipeScrollRef = useRef(0)       // scroll di Pipe salvato all'apertura di una vista, ripristinato al ritorno
   const vistaScroll = useRef(new Map()) // vistaId -> scrollTop dentro l'editor: tornando indietro si riparte da dov'eri
   const baseBlocchi = useRef({})        // { vistaId: blocchi } = ultimo stato cloud noto, per il merge multi-dispositivo
+  const visteCloud = useRef(new Map())  // id -> riga vista dell'ultima lettura riuscita (base della lettura a differenza)
+  const vistaToccata = useRef({})       // { vistaId: ms } = ultimo salvataggio locale (vedi reload: lettura più vecchia del salvataggio)
   // Visione di SISTEMA che raccoglie i template: nascosta ovunque (griglia, mappa, elenco).
   // Serve perché nello schema ogni template deve avere una visione: così i template
   // sopravvivono anche se elimini TUTTE le visioni reali.
@@ -162,6 +164,7 @@ export default function App() {
   }
 
   const reload = useCallback(async () => {
+    const t0 = Date.now()
     // Prima di leggere: se ci sono scritture rimaste in coda (fatte offline) le
     // rigiochiamo, così la lettura che segue vede già il risultato.
     try { await replayOutbox(store); setInCoda(outboxCount()) } catch { /* si ritenta */ }
@@ -170,7 +173,7 @@ export default function App() {
     let fallite = 0
     const safe = (p) => p.catch(e => { fallite++; console.warn('[reload] lettura fallita:', e?.message || e); return [] })
     let [vt, vs, allViste, allLinks, allTask, allRegole] = await Promise.all([
-      safe(store.list('vite')), safe(store.list('visioni')), safe(store.list('viste')), safe(store.list('links')),
+      safe(store.list('vite')), safe(store.list('visioni')), safe(store.listVisteDelta(visteCloud.current)), safe(store.list('links')),
       safe(store.list('task')), safe(store.list('ricorrenza')),
     ])
     let allGiorni = await safe(store.list('giorno'))
@@ -200,6 +203,7 @@ export default function App() {
       setOffline(true)
     } else {
       setOffline(typeof navigator !== 'undefined' && navigator.onLine === false)
+      visteCloud.current = new Map(allViste.map(v => [v.id, v]))
       // niente snapshot se non c'è proprio niente da salvare
       if (vs.length || allViste.length || allTask.length) {
         saveSnapshot({ vite: vt, visioni: vs, viste: allViste, links: allLinks, task: allTask, ricorrenza: allRegole, giorno: allGiorni })
@@ -214,11 +218,21 @@ export default function App() {
     const visReali = vs.filter(v => v.titolo !== TEMPLATE_VIS)
     setVisioni(visReali)
     // istantanea dello stato cloud: base per il merge a 3 vie al prossimo salvataggio
-    baseBlocchi.current = Object.fromEntries(allViste.map(v => [v.id, v.blocchi || []]))
+    // Vista salvata MENTRE questa lettura era in corso (tipico: torni sulla finestra
+    // cliccando 🗑 → il focus lancia il reload, il click cancella e salva): il dato
+    // letto è più vecchio del salvataggio e non più "dirty" in cache, quindi
+    // riporterebbe a schermo la riga appena eliminata. Per quelle viste vince lo
+    // stato locale; il prossimo reload le riallinea.
+    const toccata = (id) => (vistaToccata.current[id] || 0) >= t0
+    baseBlocchi.current = Object.fromEntries(allViste.map(v => [v.id,
+      toccata(v.id) && baseBlocchi.current[v.id] ? baseBlocchi.current[v.id] : (v.blocchi || [])]))
     const merged = mergeVisteWithCache(allViste)   // ripristina modifiche locali non ancora confermate
     pruneVistaCache(new Set(allViste.map(v => v.id)))   // alleggerisce: la cache viene riscritta a ogni battuta
     prunePiegature(new Set(allViste.map(v => v.id)))   // rami piegati di viste che non esistono più
-    setViste(merged)
+    setViste(prev => {
+      const loc = new Map(prev.map(v => [v.id, v]))
+      return merged.map(v => toccata(v.id) && loc.has(v.id) ? loc.get(v.id) : v)
+    })
     const ids = new Set(merged.map(v => v.id))
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
     flushDirtyToCloud(store)   // ri-spedisce in background ciò che non era stato salvato sul cloud
@@ -1027,6 +1041,7 @@ export default function App() {
     // Progetto in sola visibilità: non si scrive niente, nemmeno in cache locale.
     // (silenzioso: l'editor è già aperto in sola lettura, non serve un avviso)
     if (!vistaModificabile(updated)) return Promise.resolve('local')
+    vistaToccata.current[updated.id] = Date.now()
     // 1) mirror SINCRONO in locale: sopravvive a refresh/chiusura anche se il cloud fallisce.
     //    Registra anche la BASE (ultimo stato cloud noto) così un eventuale ri-flush di questa
     //    entry dirty userà il merge a 3 vie e non resusciterà righe eliminate su un altro device.
@@ -1582,7 +1597,7 @@ export default function App() {
                   messaggio: 'Cancella snapshot, coda di sincronizzazione e cache delle viste salvati su QUESTO dispositivo, poi ricarica tutto dal cloud. Non tocca nulla su Supabase.'
                     + (inCoda ? `\n\nAttenzione: ci sono ${inCoda} modifiche non ancora salite. Andrebbero perse.` : ''),
                   okLabel: 'Ripulisci e ricarica',
-                  onOk: async () => { purgeLocalData(); dropVistaCache(); dropPiegature(); await reload() },
+                  onOk: async () => { purgeLocalData(); dropVistaCache(); dropPiegature(); visteCloud.current = new Map(); await reload() },
                 })
               }}>🧹 Ripulisci le copie locali</button>
               <button onClick={doExport} disabled={busy==='export'}>⬇ Esporta backup (JSON)</button>

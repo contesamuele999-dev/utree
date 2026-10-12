@@ -1096,14 +1096,14 @@ a { color: var(--accent); text-decoration: none; }
    📅 ✅ ⚡ 📷 ⌫ 🗑. Prima ✅ e ⚡ ereditavano i 38px di .iconbtn e sporgevano
    rispetto alle altre. */
 .block .row-actions .iconbtn,
-.block .row-due, .block .row-check-btn, .block .row-oggi,
+.block .row-due, .block .row-check-btn, .block .row-oggi, .block .row-mic,
 .block .row-img, .block .row-clear, .block .row-del {
   width: 28px; height: 28px; font-size: 14px; flex: 0 0 auto;
 }
-.block .row-check-btn, .block .row-oggi {
+.block .row-check-btn, .block .row-oggi, .block .row-mic {
   opacity: .55; transition: opacity .12s, border-color .12s;
 }
-.block:hover .row-check-btn, .block:hover .row-oggi,
+.block:hover .row-check-btn, .block:hover .row-oggi, .block:hover .row-mic,
 .block .row-check-btn.on, .block .row-oggi.on { opacity: 1; }
 
 /* ---- azioni riga: su desktop restano in linea; su mobile dietro a un menu ⋮ ---- */
@@ -1185,6 +1185,12 @@ a { color: var(--accent); text-decoration: none; }
   padding: 8px 16px; font-size: 12.5px; color: var(--text); box-shadow: var(--shadow);
   pointer-events: none; animation: drop .2s ease;
 }
+.editor-toast.con-azione { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px; }
+.editor-toast.con-azione button {
+  background: none; border: none; border-radius: 999px; padding: 4px 10px; cursor: pointer;
+  color: var(--green-bright); font: inherit; font-weight: 700;
+}
+.editor-toast.con-azione button:hover { background: var(--bg-2); }
 
 /* ---------- Progress: evidenziazione colonna + hint ---------- */
 .kcol { transition: box-shadow .15s, border-color .15s, background .15s; }

@@ -24,12 +24,16 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError } = {}) 
   r.lang = lang
   r.continuous = true
   r.interimResults = false
+  // un evento può portare più pezzi definitivi: li uniamo e chiamiamo onText UNA volta,
+  // così chi riceve non lavora due volte sullo stesso stato
   r.onresult = (e) => {
+    const parti = []
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (!e.results[i].isFinal) continue
       const t = (e.results[i][0]?.transcript || '').trim()
-      if (t) onText?.(t)
+      if (t) parti.push(t)
     }
+    if (parti.length) onText?.(parti.join(' '))
   }
   r.onerror = (e) => onError?.(e?.error || 'errore')
   r.onend = () => { if (rec === r) rec = null; onEnd?.() }

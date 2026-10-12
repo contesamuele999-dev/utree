@@ -135,6 +135,28 @@ export const store = {
     return (db[table] || []).filter(row => Object.entries(filter).every(([k, v]) => row[k] === v))
   },
 
+  // Viste "a differenza": i `blocchi` sono il grosso del traffico, e a ogni ritorno
+  // sulla finestra si rileggevano tutti. Qui si chiede solo id + updated_at e si
+  // scaricano per intero soltanto le viste nuove o cambiate (il trigger su `viste`
+  // aggiorna updated_at a ogni modifica); le eliminate spariscono perché mancano
+  // dall'elenco. `prev` = Map id -> riga dell'ultima lettura riuscita.
+  async listVisteDelta(prev) {
+    if (!hasSupabase || !prev?.size) return this.list('viste')
+    const { data: meta, error } = await supabase.from('viste').select('id, updated_at')
+      .order('ordine', { ascending: true }).order('created_at', { ascending: true })
+    if (error) throw error
+    const cambiate = meta.filter(m => prev.get(m.id)?.updated_at !== m.updated_at).map(m => m.id)
+    if (cambiate.length > 100) return this.list('viste')   // tante cambiate: una lettura piena costa meno di un URL enorme
+    let fresche = []
+    if (cambiate.length) {
+      const { data, error: e2 } = await supabase.from('viste').select('*').in('id', cambiate)
+      if (e2) throw e2
+      fresche = data
+    }
+    const byId = new Map(fresche.map(r => [r.id, r]))
+    return meta.map(m => byId.get(m.id) || prev.get(m.id)).filter(Boolean)
+  },
+
   // `opts.noQueue` = chiamata fatta dal replay dell'outbox: non rimettere in coda.
   async insert(table, row, opts = {}) {
     if (hasSupabase) {
