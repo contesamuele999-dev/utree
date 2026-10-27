@@ -5,6 +5,21 @@ import App from './App.jsx'
 import ErrorBoundary from './lib/ErrorBoundary.jsx'
 import './styles/app.css'
 import { loadTheme } from './lib/themes.js'
+import { registerSW } from 'virtual:pwa-register'
+
+// Aggiornamenti: il browser controlla il service worker solo all'apertura, e la
+// PWA sul telefono resta aperta in background per giorni con la versione vecchia.
+// Ricontrolliamo ogni volta che l'app torna in primo piano: se c'è una versione
+// nuova, `autoUpdate` la attiva e ricarica la pagina da solo.
+registerSW({
+  immediate: true,
+  onRegisteredSW(_url, reg) {
+    if (!reg) return
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) reg.update().catch(() => {})
+    })
+  },
+})
 
 // L'app si chiamava "arbora": le chiavi salvate nel browser sono passate a
 // "utree-". Al primo avvio dopo l'aggiornamento le ricopiamo, altrimenti tema,

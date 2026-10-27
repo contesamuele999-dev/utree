@@ -706,6 +706,17 @@ a { color: var(--accent); text-decoration: none; }
 .due-badge.due-later { color: #06160e; background: var(--due-later); }
 .due-badge.due-over  { animation: duePulse 1.6s ease-in-out infinite; }
 @keyframes duePulse { 0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--due-over) 60%, transparent); } 50% { box-shadow: 0 0 0 4px transparent; } }
+.timer-badge {
+  flex: 0 0 auto; align-self: center; display: inline-flex; align-items: center;
+  font-size: 11px; font-weight: 800; white-space: nowrap; user-select: none;
+  border: 1px solid var(--border); border-radius: 999px; overflow: hidden;
+}
+.timer-badge button {
+  background: none; border: 0; color: var(--text-dim); font: inherit; padding: 2px 6px; cursor: pointer;
+}
+.timer-badge button:first-child { color: inherit; font-variant-numeric: tabular-nums; padding-left: 8px; }
+.timer-badge button:hover { color: var(--text); }
+.timer-badge.run { border-color: var(--green-deep); color: var(--green-bright); background: rgba(52,210,126,.08); }
 .gcal-badge {
   flex: 0 0 auto; align-self: center; font-size: 10px; font-weight: 700; white-space: nowrap;
   padding: 2px 7px; border-radius: 999px; user-select: none;

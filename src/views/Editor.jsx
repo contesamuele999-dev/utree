@@ -55,6 +55,42 @@ const relTime = (ts) => {
 }
 const shortText = (t) => (t || '').replace(/[#*`>]/g, '').trim().slice(0, 44) || 'riga'
 
+// ---- CRONOMETRO di riga (/timer) ----
+// `b.timer = { ms, run }`: `ms` = tempo accumulato, `run` = istante di partenza se sta
+// andando (null se fermo). Salvare l'istante e non i secondi fa sì che il conto
+// prosegua anche a vista chiusa o app spenta.
+const timerMs = (t) => (t?.ms || 0) + (t?.run ? Date.now() - t.run : 0)
+const fmtTimer = (ms) => {
+  const s = Math.floor(ms / 1000)
+  return `${Math.floor(s / 3600)}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`
+}
+// "1:30" = 1 ora e 30 min · "1:30:15" = h:m:s · "45" = 45 minuti. null se non valido.
+const parseTimer = (str) => {
+  const p = (str || '').trim().split(':').map(Number)
+  if (!p.length || p.length > 3 || p.some(n => !Number.isFinite(n) || n < 0)) return null
+  const [h, m, s] = p.length === 1 ? [0, p[0], 0] : [p[0], p[1], p[2] || 0]
+  return ((h * 60 + m) * 60 + s) * 1000
+}
+function TimerBadge({ timer, onToggle, onReset, onSet, onRemove, disabled }) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!timer.run) return
+    const t = setInterval(() => tick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [timer.run])
+  return (
+    <span className={'timer-badge' + (timer.run ? ' run' : '')} data-noswipe="">
+      <button type="button" disabled={disabled} onClick={onToggle}
+        title={timer.run ? 'Ferma il cronometro' : 'Avvia il cronometro'}>{timer.run ? '⏸' : '▶'} {fmtTimer(timerMs(timer))}</button>
+      {!disabled && <>
+        <button type="button" onClick={onSet} title="Imposta il tempo a mano">✎</button>
+        <button type="button" onClick={onReset} title="Azzera">↺</button>
+        <button type="button" onClick={onRemove} title="Togli il cronometro dalla riga">✕</button>
+      </>}
+    </span>
+  )
+}
+
 // ---- Scorciatoie con "/" (slash) durante la scrittura di una riga ----
 const MESI_FULL = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 const MESI_ABBR = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
@@ -99,6 +135,7 @@ const SLASH_CMDS = [
   // --- azioni sulla riga ---
   { key: 'check', label: '/check', desc: 'aggiungi o togli il checkbox', azione: true, prev: '☐' },
   { key: 'oggi',  label: '/oggi',  desc: 'porta la riga fra le task di oggi', azione: true, prev: '⚡' },
+  { key: 'timer', label: '/timer', desc: 'cronometro sulla riga (avvia / ferma)', azione: true, prev: '⏱' },
   // --- struttura della riga ---
   { key: 't1',    label: '/t1',    desc: 'titolo grande', prefisso: '# ', prev: 'H1' },
   { key: 't2',    label: '/t2',    desc: 'titolo medio', prefisso: '## ', prev: 'H2' },
@@ -313,6 +350,24 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       }
       : b)
     commit(next)
+  }
+  // cronometro di riga: `t` = nuovo stato (undefined = toglilo), `testo` come in setCheck
+  const setTimer = (id, t, testo) => {
+    commit(blocks.map(b => b.id === id
+      ? { ...b, timer: t, ...(testo !== undefined ? { text: testo } : {}) }
+      : b))
+  }
+  // avvia/ferma; su una riga senza cronometro lo crea già in moto
+  const toggleTimer = (b, testo) => {
+    const t = b.timer
+    setTimer(b.id, t?.run ? { ms: timerMs(t), run: null } : { ms: t?.ms || 0, run: Date.now() }, testo)
+  }
+  const askTimer = (b) => {
+    const v = window.prompt('Tempo (h:mm, h:mm:ss o minuti):', fmtTimer(timerMs(b.timer)))
+    if (v == null) return
+    const ms = parseTimer(v)
+    if (ms == null) { setToast('Tempo non valido'); return }
+    setTimer(b.id, { ms, run: b.timer?.run ? Date.now() : null })
   }
   const toggleCheck = (id) => {
     const b = blocks.find(x => x.id === id)
@@ -1721,7 +1776,8 @@ ${rowsHtml}
   const slashOptions = () => {
     if (!slash) return []
     const q = slash.query
-    return SLASH_CMDS.filter(c => c.key.startsWith(q))
+    // la corrispondenza esatta va in cima: "/time" non deve proporre prima "/timer"
+    return SLASH_CMDS.filter(c => c.key.startsWith(q)).sort((a, b) => (b.key === q) - (a.key === q))
   }
   // sostituisce il token /parola con il valore del comando scelto
   const applySlash = (cmd) => {
@@ -1740,6 +1796,7 @@ ${rowsHtml}
       // "/check" lo toglie (è il modo naturale per liberarsene).
       if (cmd.key === 'check') setCheck(b.id, !b.check, pulito)
       else if (cmd.key === 'oggi') mandaOggi(b, pulito)
+      else if (cmd.key === 'timer') toggleTimer(b, pulito)
       const caretAz = before.length
       requestAnimationFrame(() => {
         const el = editRef.current
@@ -2520,6 +2577,12 @@ ${rowsHtml}
           {di && (
             <span className={'due-badge ' + di.cls} title={'Scadenza: ' + b.due}
               onClick={() => { if (!selectMode) setDuePick(b.id) }}>⏰ {di.label}</span>
+          )}
+          {b.timer && (
+            <TimerBadge timer={b.timer} disabled={bloccato}
+              onToggle={() => toggleTimer(b)} onSet={() => askTimer(b)}
+              onReset={() => setTimer(b.id, { ms: 0, run: b.timer.run ? Date.now() : null })}
+              onRemove={() => setTimer(b.id, undefined)} />
           )}
           {b.gcal && (
             <span className="gcal-badge" title="Sincronizzato su Google Calendar">📅</span>
