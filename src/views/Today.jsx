@@ -167,9 +167,23 @@ export default function Today({
   // invece di entrare in modifica.
   const clickTesto = (e, t) => {
     if (swipeFatto.current) { swipeFatto.current = false; return }   // era uno swipe, non un tap
+    // testo selezionato trascinando: si vuole copiare, non modificare
+    if (window.getSelection && !window.getSelection().isCollapsed) return
     const link = e.target.getAttribute?.('data-link')
     if (link && onWikilink) { e.stopPropagation(); onWikilink(link); return }
+    contaTap(t.id)
     setEditId(t.id); setEditText(t.text || '')
+  }
+
+  // ---- TRIPLO clic/tocco = seleziona tutta la voce (copia, taglia, incolla) ----
+  // Il primo clic apre già la modifica, quindi il conteggio nativo (e.detail) si
+  // perde col cambio di elemento e da telefono non c'è proprio: contiamo noi.
+  const tap = useRef({ id: null, n: 0, t: 0 })
+  const contaTap = (id) => {
+    const r = tap.current, ora = Date.now()
+    r.n = r.id === id && ora - r.t < 450 ? r.n + 1 : 1
+    r.id = id; r.t = ora
+    return r.n
   }
 
   // ---- SWIPE orizzontale sulla riga = ±1 livello di rientro -------------------
@@ -395,6 +409,7 @@ export default function Today({
                 <div className="today-editwrap">
                   <input className="today-edit" ref={editRef} value={editText}
                     onChange={e => setEditText(e.target.value)}
+                    onClick={e => { if (contaTap(t.id) >= 3) e.currentTarget.select() }}
                     onBlur={confermaEdit}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
