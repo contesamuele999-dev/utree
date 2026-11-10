@@ -761,10 +761,16 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       onText: (frase) => { dettaSink.current?.(frase); setDettaStato(s => ({ ...s, scritte: (s.scritte || 0) + 1, ultima: frase })) },
       // l'errore resta visibile finché non si sente di nuovo qualcosa
       onStato: (s) => setDettaStato(p => ({ ...p, ...s, errore: s.errore || (s.sentito ? null : p.errore) })),
-      onEnd: ({ errore } = {}) => {
+      onEnd: ({ errore, diario } = {}) => {
         setDettando(null)
+        // il diario in coda al messaggio: dice cosa ha fatto davvero il microfono
+        const traccia = diario?.length ? ` — ${diario.join(' › ')}` : ''
+        if (errore === 'network') {
+          avvisa(`Il servizio vocale di questo browser non risponde: prova con Chrome o Edge, o controlla la rete${traccia}`, 10000)
+          return
+        }
         const perche = errore ? ` (${ERR_DETTA[errore] || errore})` : ''
-        avvisa(`Dettatura ferma: non ho sentito voce${perche}. Premi 🎤 per riprendere`, 6000)
+        avvisa(`Dettatura ferma: non ho sentito voce${perche}. Premi 🎤 per riprendere${traccia}`, 10000)
       },
       onError: (err) => {
         setDettando(null)
@@ -2781,6 +2787,7 @@ ${rowsHtml}
               : 'Avvio il microfono…'}
             {dettaStato.errore && <small> · {ERR_DETTA[dettaStato.errore] || dettaStato.errore}</small>}
             {!!dettaStato.scritte && <small> · {dettaStato.scritte} {dettaStato.scritte === 1 ? 'frase scritta' : 'frasi scritte'}</small>}
+            {!!dettaStato.diario?.length && <span className="detta-diario">{dettaStato.diario.join(' › ')}</span>}
           </span>
           <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { stopDettatura(); setDettando(null) }}>Stop</button>
         </div>

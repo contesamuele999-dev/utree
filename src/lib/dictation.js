@@ -19,6 +19,7 @@ const FATALI = new Set(['not-allowed', 'service-not-allowed', 'audio-capture', '
 let rec = null
 // Chrome Android: in modalità continua le sessioni si chiudono a ogni frase e
 // spesso perdono l'ultima. Lì una sessione = una frase, poi si riapre.
+const SILENZIO_MS = 10000   // 10 s senza voce: la dettatura si ferma da sola
 const ANDROID = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 
 export function stopDettatura() {
@@ -38,8 +39,17 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError, onStato
   if (!SR) return false
   stopDettatura()
   let ultimoErr = null
+  // Silenzio tollerato: si continua a riaprire finché sono passati meno di
+  // SILENZIO_MS dall'avvio o dall'ultima voce sentita. Senza, su Android si
+  // fermava al primo ascolto (si chiude prima che si cominci a parlare).
+  let ultimoSegno = Date.now()
+  // diario degli eventi del microfono, mostrato a schermo: serve a capire dal
+  // telefono cosa fa davvero il browser
+  const diario = []
+  const segna = (ev) => { diario.push(ev); if (diario.length > 8) diario.shift(); onStato?.({ diario: diario.slice() }) }
   const avvia = () => {
     const r = new SR()
+    const t0 = Date.now()
     let sentito = false     // questa sessione ha sentito qualcosa? Solo allora si riapre
     let provv = ''          // testo provvisorio non ancora confermato dal browser
     let fatale = false
@@ -47,13 +57,14 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError, onStato
     r.continuous = !ANDROID
     r.interimResults = true   // i provvisori servono al feedback (e a non perdere l'ultima frase)
     const stato = (s) => { if (rec === r) onStato?.(s) }
-    r.onstart = () => stato({ fase: 'ascolto' })
-    r.onspeechstart = () => { sentito = true; stato({ fase: 'voce' }) }
+    r.onstart = () => { segna('start'); stato({ fase: 'ascolto' }) }
+    r.onaudiostart = () => segna('audio')
+    r.onspeechstart = () => { sentito = true; ultimoSegno = Date.now(); segna('voce'); stato({ fase: 'voce' }) }
     r.onspeechend = () => stato({ fase: 'ascolto' })
     // un evento può portare più pezzi definitivi: li uniamo e chiamiamo onText UNA volta,
     // così chi riceve non lavora due volte sullo stesso stato
     r.onresult = (e) => {
-      sentito = true; ultimoErr = null
+      sentito = true; ultimoErr = null; ultimoSegno = Date.now()
       const parti = []
       provv = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -62,27 +73,33 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError, onStato
         if (e.results[i].isFinal) parti.push(t); else provv += (provv ? ' ' : '') + t
       }
       stato({ fase: 'voce', sentito: provv || parti.join(' ') })
-      if (parti.length && rec === r) onText?.(parti.join(' '))
+      if (parti.length && rec === r) { segna('testo'); onText?.(parti.join(' ')) }
     }
     r.onerror = (e) => {
       const err = e?.error || 'errore'
       if (FATALI.has(err)) { fatale = true; if (rec === r) rec = null; onError?.(err); return }
       ultimoErr = err
+      segna('err:' + err)
       stato({ fase: 'ascolto', errore: err })
     }
     r.onend = () => {
       if (rec !== r) return                       // fermata dall'utente (o sostituita)
+      segna('fine ' + ((Date.now() - t0) / 1000).toFixed(1) + 's')
       // bug Android: la sessione si chiude con l'ultima frase ancora "provvisoria".
       // Era detta davvero: la scriviamo noi.
-      if (provv) { onText?.(provv); provv = '' }
-      // Sessione muta (silenzio, o il telefono non capta): NON si riapre. Riaprire a
-      // vuoto faceva chiudere e riaprire il microfono di continuo.
-      if (fatale || !sentito) { rec = null; onEnd?.({ errore: ultimoErr }); return }
+      if (provv) { segna('testo*'); onText?.(provv); provv = '' }
+      // Troppo silenzio (o il telefono non capta): ci si ferma. Riaprire a vuoto
+      // all'infinito faceva chiudere e riaprire il microfono di continuo.
+      // 'network' senza aver sentito nulla = il servizio vocale del browser non
+      // risponde (Brave, Opera, Chromium… espongono l'API ma non il servizio):
+      // riprovare non serve
+      const morto = !sentito && ultimoErr === 'network'
+      if (fatale || morto || (!sentito && Date.now() - ultimoSegno > SILENZIO_MS)) { rec = null; onEnd?.({ errore: ultimoErr, diario: diario.slice() }); return }
       onStato?.({ fase: 'riavvio' })
       // pausa: su Android il microfono va liberato prima di riaprirlo
       setTimeout(() => {
         if (rec !== r) return                     // nel frattempo l'utente ha premuto stop
-        try { rec = avvia() } catch (e) { rec = null; onEnd?.({ errore: e?.name || 'start' }) }
+        try { rec = avvia() } catch (e) { rec = null; onEnd?.({ errore: e?.name || 'start', diario: diario.slice() }) }
       }, 250)
     }
     r.start()

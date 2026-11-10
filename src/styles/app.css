@@ -1204,6 +1204,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 .detta-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detta-txt small { color: var(--text-dim); }
+.detta-diario { display: block; font-size: 10.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, monospace; }
 .detta-stato button { flex: 0 0 auto; border: 1px solid var(--border); background: var(--bg-2); color: var(--text); border-radius: 999px; padding: 4px 12px; font: inherit; cursor: pointer; }
 .detta-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
 .detta-stato.ascolto .detta-dot { background: #e05a4d; }
