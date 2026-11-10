@@ -10,6 +10,13 @@ import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 import { leggiPiegature, scriviPiegature } from '../lib/piegature.js'
 import { dettaturaDisponibile, startDettatura, stopDettatura } from '../lib/dictation.js'
 
+// errori NON fatali del riconoscimento vocale, detti in italiano nel feedback
+const ERR_DETTA = {
+  'no-speech': 'non sento nulla, parla più vicino',
+  network: 'serve internet: la dettatura passa dai server del browser',
+  aborted: 'interrotta, riprovo',
+}
+
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const MAX_INDENT = 6
@@ -221,6 +228,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
   const [rowSheet, setRowSheet] = useState(null)       // id della riga con il menu rapido aperto (doppio tocco)
   const [collapsed, setCollapsed] = useState(() => leggiPiegature(vista.id))   // righe coi sottorami piegati (nascosti)
   const [dettando, setDettando] = useState(null)                // id della riga in dettatura vocale (null = spenta)
+  const [dettaStato, setDettaStato] = useState({})              // feedback dettatura: fase, testo provvisorio, errori
   const [ancoraAttiva, setAncoraAttiva] = useState(null)        // ancora (titolo) in cima allo schermo
   const stickyRef = useRef(null)                        // gruppo ancorato in alto: serve a misurarne l'ingombro
   const anchorBarRef = useRef(null)                     // barra delle ancore (scorrimento orizzontale delle chip)
@@ -748,12 +756,17 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     if (dettando) { stopDettatura(); setDettando(null); return }
     if (!dettaturaDisponibile()) { avvisa('Dettatura non supportata da questo browser: usa Chrome o Edge'); return }
     dettaId.current = id
+    setDettaStato({ fase: 'avvio' })
     const ok = startDettatura({
-      onText: (frase) => dettaSink.current?.(frase),
-      onEnd: () => setDettando(null),
+      onText: (frase) => { dettaSink.current?.(frase); setDettaStato(s => ({ ...s, scritte: (s.scritte || 0) + 1, ultima: frase })) },
+      // l'errore resta visibile finché non si sente di nuovo qualcosa
+      onStato: (s) => setDettaStato(p => ({ ...p, ...s, errore: s.errore || (s.sentito ? null : p.errore) })),
+      onEnd: () => { setDettando(null); avvisa('Dettatura spenta: troppo silenzio') },
       onError: (err) => {
         setDettando(null)
-        avvisa(err === 'not-allowed' ? 'Microfono negato' : 'Dettatura interrotta')
+        avvisa(err === 'not-allowed' || err === 'service-not-allowed' ? 'Microfono negato: abilitalo nelle impostazioni del sito'
+          : err === 'audio-capture' ? 'Nessun microfono trovato'
+          : `Dettatura interrotta (${err})`)
       },
     })
     if (ok) setDettando(id); else avvisa('Dettatura non disponibile')
@@ -2036,7 +2049,11 @@ ${rowsHtml}
 
   // quanto spazio occupa la parte ancorata in alto: le righe vanno portate SOTTO,
   // non dietro
-  const stickyOffset = () => (stickyRef.current?.offsetHeight || 0) + 10
+  // (su schermi bassi l'intestazione non è ancorata: vedi .editor-sticky in app.css)
+  const stickyOffset = () => {
+    const s = stickyRef.current
+    return (s && getComputedStyle(s).position === 'sticky' ? s.offsetHeight : 0) + 10
+  }
 
   const scroller = () => rootRef.current?.closest('.content') || document.scrollingElement
 
@@ -2747,6 +2764,21 @@ ${rowsHtml}
         <div className="drag-ghost" style={{ left: ghost.x + 14, top: ghost.y + 10 }}>
           <span className="drag-ghost-txt">{shortText(ghost.text)}</span>
           {ghost.rami > 0 && <span className="drag-ghost-rami">+{ghost.rami}</span>}
+        </div>
+      )}
+      {dettando && (
+        // in ALTO: in basso la tastiera del telefono lo coprirebbe
+        <div className={'detta-stato ' + (dettaStato.fase || 'avvio')} role="status" aria-live="polite">
+          <span className="detta-dot" />
+          <span className="detta-txt">
+            {dettaStato.fase === 'voce' ? (dettaStato.sentito ? `«${dettaStato.sentito}»` : 'Sento la voce…')
+              : dettaStato.fase === 'ascolto' ? 'Ti ascolto, parla pure'
+              : dettaStato.fase === 'riavvio' ? 'Riapro il microfono…'
+              : 'Avvio il microfono…'}
+            {dettaStato.errore && <small> · {ERR_DETTA[dettaStato.errore] || dettaStato.errore}</small>}
+            {!!dettaStato.scritte && <small> · {dettaStato.scritte} {dettaStato.scritte === 1 ? 'frase scritta' : 'frasi scritte'}</small>}
+          </span>
+          <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => { stopDettatura(); setDettando(null) }}>Stop</button>
         </div>
       )}
       {toast && <div className="editor-toast">{toast}</div>}
