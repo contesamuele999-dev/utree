@@ -14,7 +14,7 @@ import { dettaturaDisponibile, startDettatura, stopDettatura } from '../lib/dict
 const ERR_DETTA = {
   'no-speech': 'non sento nulla, parla più vicino',
   network: 'serve internet: la dettatura passa dai server del browser',
-  aborted: 'interrotta, riprovo',
+  aborted: 'interrotta dal browser',
 }
 
 const uid = () => 'b-' + Math.random().toString(36).slice(2, 9)
@@ -405,7 +405,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     const d = new Date(); const p = n => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
   }
-  const avvisa = (msg) => { setToast(msg); setTimeout(() => setToast(''), 1800) }
+  const avvisa = (msg, ms = 1800) => { setToast(msg); setTimeout(() => setToast(''), ms) }
 
   // Sposta in Today le righe indicate, con UN SOLO commit (un ciclo di commit
   // ripartirebbe ogni volta dallo stesso `blocks` e salverebbe solo l'ultimo).
@@ -761,7 +761,11 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       onText: (frase) => { dettaSink.current?.(frase); setDettaStato(s => ({ ...s, scritte: (s.scritte || 0) + 1, ultima: frase })) },
       // l'errore resta visibile finché non si sente di nuovo qualcosa
       onStato: (s) => setDettaStato(p => ({ ...p, ...s, errore: s.errore || (s.sentito ? null : p.errore) })),
-      onEnd: () => { setDettando(null); avvisa('Dettatura spenta: troppo silenzio') },
+      onEnd: ({ errore, rapide } = {}) => {
+        setDettando(null)
+        const perche = errore ? ` (${ERR_DETTA[errore] || errore})` : ''
+        avvisa(rapide ? `Il microfono si chiude appena aperto${perche}` : `Dettatura spenta: un minuto senza sentire voce${perche}`, 6000)
+      },
       onError: (err) => {
         setDettando(null)
         avvisa(err === 'not-allowed' || err === 'service-not-allowed' ? 'Microfono negato: abilitalo nelle impostazioni del sito'

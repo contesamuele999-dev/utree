@@ -17,6 +17,7 @@ export const dettaturaDisponibile = () => !!getSR()
 const FATALI = new Set(['not-allowed', 'service-not-allowed', 'audio-capture', 'language-not-supported'])
 
 let rec = null
+const SILENZIO_MS = 60000   // un minuto senza voce: la dettatura si spegne da sola
 
 export function stopDettatura() {
   const r = rec
@@ -34,21 +35,27 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError, onStato
   if (!SR) return false
   stopDettatura()
   let fatale = false
-  let riavvii = 0          // riavvii senza aver sentito nulla: evita un giro infinito a vuoto
+  // Si spegne da sola solo dopo SILENZIO_MS senza sentire voce. Prima contavamo 20
+  // riavvii: su Android ogni sessione si chiude in un attimo e i 20 giri finivano
+  // in pochi secondi, anche mentre si parlava ("troppo silenzio" parlando).
+  let ultimoSegno = Date.now()   // ultimo momento in cui il browser ha sentito voce
+  let rapide = 0                 // sessioni di fila chiuse entro 1s: microfono che non parte
+  let ultimoErr = null
   const avvia = () => {
     const r = new SR()
+    const t0 = Date.now()
     r.lang = lang
     r.continuous = true
     r.interimResults = true   // i provvisori servono SOLO al feedback; in riga vanno i definitivi
     const stato = (s) => { if (rec === r) onStato?.(s) }
     r.onstart = () => stato({ fase: 'ascolto' })
     r.onaudiostart = () => stato({ fase: 'ascolto' })
-    r.onspeechstart = () => stato({ fase: 'voce' })
+    r.onspeechstart = () => { ultimoSegno = Date.now(); stato({ fase: 'voce' }) }
     r.onspeechend = () => stato({ fase: 'ascolto' })
     // un evento può portare più pezzi definitivi: li uniamo e chiamiamo onText UNA volta,
     // così chi riceve non lavora due volte sullo stesso stato
     r.onresult = (e) => {
-      riavvii = 0
+      ultimoSegno = Date.now(); ultimoErr = null
       const parti = []
       let provv = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -63,16 +70,25 @@ export function startDettatura({ lang = 'it-IT', onText, onEnd, onError, onStato
       const err = e?.error || 'errore'
       if (FATALI.has(err)) { fatale = true; if (rec === r) rec = null; onError?.(err); return }
       // no-speech / network / aborted: ci pensa onend a ripartire, ma lo diciamo
+      ultimoErr = err
       stato({ fase: 'ascolto', errore: err })
     }
     r.onend = () => {
       if (rec !== r) return                       // fermata dall'utente (o sostituita)
-      // ponytail: tetto fisso di 20 riavvii muti (~qualche minuto di silenzio), poi si spegne
-      if (!fatale && riavvii++ < 20) {
-        try { onStato?.({ fase: 'riavvio' }); const n = avvia(); rec = n; return } catch { /* cade sotto */ }
+      rapide = Date.now() - t0 < 1000 ? rapide + 1 : 0
+      const muto = Date.now() - ultimoSegno > SILENZIO_MS
+      if (!fatale && !muto && rapide < 6) {
+        onStato?.({ fase: 'riavvio' })
+        // pausa prima di riaprire: su Android il microfono va prima liberato, se no
+        // la nuova sessione si chiude subito; e cresce se continua a chiudersi
+        setTimeout(() => {
+          if (rec !== r) return                   // nel frattempo l'utente ha premuto stop
+          try { rec = avvia() } catch (e) { rec = null; onEnd?.({ errore: e?.name || 'start', rapide: true }) }
+        }, 250 + rapide * 300)
+        return
       }
       rec = null
-      onEnd?.()
+      onEnd?.({ errore: ultimoErr, rapide: rapide >= 6 })
     }
     r.start()
     return r
