@@ -761,10 +761,10 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       onText: (frase) => { dettaSink.current?.(frase); setDettaStato(s => ({ ...s, scritte: (s.scritte || 0) + 1, ultima: frase })) },
       // l'errore resta visibile finché non si sente di nuovo qualcosa
       onStato: (s) => setDettaStato(p => ({ ...p, ...s, errore: s.errore || (s.sentito ? null : p.errore) })),
-      onEnd: ({ errore, rapide } = {}) => {
+      onEnd: ({ errore } = {}) => {
         setDettando(null)
         const perche = errore ? ` (${ERR_DETTA[errore] || errore})` : ''
-        avvisa(rapide ? `Il microfono si chiude appena aperto${perche}` : `Dettatura spenta: un minuto senza sentire voce${perche}`, 6000)
+        avvisa(`Dettatura ferma: non ho sentito voce${perche}. Premi 🎤 per riprendere`, 6000)
       },
       onError: (err) => {
         setDettando(null)
