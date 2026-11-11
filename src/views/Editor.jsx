@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { RenderedBlock, evalFormula } from '../lib/markdown.jsx'
+import { RenderedBlock, evalFormula, COLORI } from '../lib/markdown.jsx'
 import { logChars } from '../lib/activity.js'
 import { cacheVistaLocal } from '../lib/localcache.js'
 import { STAGES, stageOf } from '../lib/stages.js'
@@ -156,6 +156,7 @@ const SLASH_CMDS = [
   { key: 'corsivo', label: '/corsivo', desc: 'corsivo', coppia: ['*', '*'], prev: 'I' },
   { key: 'codice', label: '/codice', desc: 'testo a spaziatura fissa', coppia: ['`', '`'], prev: '`…`' },
   { key: 'maiuscoletto', label: '/maiuscoletto', desc: 'maiuscoletto', coppia: ['^^', '^^'], prev: 'ᴀᴀ' },
+  ...COLORI.map(c => ({ key: c, label: '/' + c, desc: 'testo ' + c, coppia: ['{' + c + ':', '}'], prev: 'A', colore: c })),
   { key: 'link',   label: '/link',   desc: 'collegamento a un\'altra vista', coppia: ['[[', ']]'], prev: '[[…]]' },
   // --- date e ore ---
   { key: 'date',  label: '/date',  desc: 'giorno mese anno' },
@@ -2335,6 +2336,7 @@ ${rowsHtml}
             <li><b className="hint-cat" /> <span><code>Ctrl+M</code> o <b>AA</b> = MAIUSCOLO</span></li>
             <li><b className="hint-cat" /> <span><code>/</code> = menu comandi: titoli, elenchi, formattazione, date, formule</span></li>
             <li><b className="hint-cat" /> <span><code>/t2</code> titolo · <code>/lista</code> elenco · <code>/sep</code> linea · <code>/link</code> collegamento</span></li>
+            <li><b className="hint-cat" /> <span><code>/rosso</code> <code>/verde</code> <code>/blu</code> … = testo colorato (<code>{'{rosso:testo}'}</code>)</span></li>
             <li><b className="hint-cat" /> <span><code>/oggi</code> <code>/domani</code> <code>/settimana</code> · <code>/calc</code> = formula (<code>=#1+#2</code>)</span></li>
             <li><b className="hint-cat" /> <span><code>Ctrl+⇧+V</code> = incolla su <b>una riga sola</b> (normale <code>Ctrl+V</code> = una riga per capo)</span></li>
             <li><b className="hint-cat" /> <span><b>🎤</b> o <code>Ctrl+⇧+D</code> = dettatura vocale · di' <b>"a capo"</b> per passare alla riga sotto</span></li>
@@ -2566,7 +2568,7 @@ ${rowsHtml}
                     onPointerDown={e => { e.preventDefault(); applySlash(c) }}>
                     <b className="slash-key">{c.label}</b>
                     <span className="slash-desc">{c.desc}</span>
-                    <span className="slash-prev">{c.prev ?? slashValue(c.key)}</span>
+                    <span className={'slash-prev' + (c.colore ? ' tc-' + c.colore : '')}>{c.prev ?? slashValue(c.key)}</span>
                   </button>
                 ))}
               </div>

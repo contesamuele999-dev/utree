@@ -463,6 +463,15 @@ a { color: var(--accent); text-decoration: none; }
 .rendered strong { color: #fff; }
 .rendered em { color: var(--accent); }
 .rendered code { background: var(--bg); padding: 2px 6px; border-radius: 5px; font-size: 13px; }
+/* colori del testo {rosso:…}: light-dark() sceglie la tinta leggibile sul tema (color-scheme lo imposta themes.js) */
+.tc-rosso   { color: light-dark(#c62828, #ff6b6b); }
+.tc-arancio { color: light-dark(#d9480f, #ffa94d); }
+.tc-giallo  { color: light-dark(#a07800, #ffd43b); }
+.tc-verde   { color: light-dark(#2b8a3e, #69db7c); }
+.tc-blu     { color: light-dark(#1864ab, #74c0fc); }
+.tc-viola   { color: light-dark(#7048e8, #b197fc); }
+.tc-grigio  { color: light-dark(#6b6b6b, #9a9a9a); }
+.rendered strong [class^="tc-"], .rendered [class^="tc-"] strong { color: inherit; }
 .smallcaps { font-variant: small-caps; letter-spacing: .03em; }
 .rendered .wikilink { color: var(--green-bright); border-bottom: 1px dashed var(--green-deep); cursor: pointer; }
 /* niente contenuto che sfondi il bordo destro: immagini e tabelle si adattano */
