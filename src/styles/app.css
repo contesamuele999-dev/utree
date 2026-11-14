@@ -1744,3 +1744,5 @@ a { color: var(--accent); text-decoration: none; }
 .kb-prop-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .kb-prop-txt a { color: var(--green-bright); }
 .kb-si.on { background: var(--green); color: var(--bg); border-color: var(--green); }
+a.kb-card { text-decoration: none; }
+@media (hover: none) { .kb-solo-pc { display: none; } }

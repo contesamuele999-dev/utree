@@ -172,6 +172,18 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
               </span>
             </button>
           )}
+          {/* Giro con il modello locale: un link "utree-agente:" che Windows passa a
+              avvia-agente-locale.bat (abilitato una volta con registra-pulsante-agente.bat).
+              Solo su computer: dal telefono non c'è un PC da accendere. */}
+          {inbox && temi && (
+            <a className="kb-card kb-solo-pc" href="utree-agente:avvia"
+              title="Accende Ollama su questo PC e cerca le novità di tutte le knowledge base, senza mandare testo a Google. Se non succede niente, lancia una volta registra-pulsante-agente.bat">
+              <span className="kb-card-ico">🖥</span>
+              <span className="kb-card-txt"><b>Giro locale</b>
+                <span>Ollama su questo PC · niente a Google</span>
+              </span>
+            </a>
+          )}
         </div>
       )}
 
