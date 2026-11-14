@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { stageOf } from '../lib/stages.js'
 import { RenderedBlock } from '../lib/markdown.jsx'
+import { logChars, totalChars } from '../lib/activity.js'
 
 // ============================================================
 // TREE — albero delle viste, stile XMind "tree chart".
@@ -240,9 +241,14 @@ function QuickEdit({ vista, onClose, onSave, onOpenFull, onDelete, readOnly = fa
   const [blocks, setBlocks] = useState(vista.blocchi?.length ? vista.blocchi : [{ id: uid(), text: '' }])
   const [editing, setEditing] = useState(null)
   const timer = useRef(null)
+  const prevChars = useRef(totalChars(blocks))
 
   const persist = (next) => {
     if (readOnly) return   // progetto condiviso in sola visibilità: si legge e basta
+    // lettere scritte anche dal pannello rapido, come nell'editor (le Statistiche le leggono)
+    const now = totalChars(next)
+    logChars(now - prevChars.current)
+    prevChars.current = now
     setBlocks(next)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => onSave?.({ ...vista, blocchi: next }), 400)

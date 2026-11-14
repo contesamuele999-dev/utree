@@ -73,7 +73,7 @@ export function renderInline(text) {
   // gestisce **bold**, *italic*, `code`, ((collegamento)), [[collegamento]], {colore:testo} e i link web
   const parts = []
   let i = 0
-  const regex = new RegExp(RE_COLORE + '|' + /(\*\*[^*]+\*\*|\^\^[^^]+\^\^|\*[^*]+\*|`[^`]+`|\[\[[^\]]+\]\]|\(\([^)]+\)\)|https?:\/\/[^\s<]+|www\.[^\s<]+)/.source, 'g')
+  const regex = new RegExp(RE_COLORE + '|' + /(\*\*[^*]+\*\*|\^\^[^^]+\^\^|\*[^*]+\*|`[^`]+`|\[\[[^\]]+\]\]|\(\([^()]+\)\)|https?:\/\/[^\s<]+|www\.[^\s<]+)/.source, 'g')
   let last = 0, m
   while ((m = regex.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index))
@@ -87,8 +87,9 @@ export function renderInline(text) {
     else if (tok.startsWith('*')) parts.push(<em key={i++}>{tok.slice(1, -1)}</em>)
     else if (tok.startsWith('`')) parts.push(<code key={i++}>{tok.slice(1, -1)}</code>)
     else if (tok.startsWith('[[') || tok.startsWith('((')) {
-      const name = tok.slice(2, -2)
-      parts.push(<span key={i++} className="wikilink" data-link={name}>{name}</span>)
+      // ((Vista|parola)): collega a "Vista" ma nel testo mostra "parola"
+      const [name, label] = tok.slice(2, -2).split('|').map(s => s.trim())
+      parts.push(<span key={i++} className="wikilink" data-link={name}>{label || name}</span>)
     }
     else if (/^https?:\/\//.test(tok) || tok.startsWith('www.')) {
       // stacca l'eventuale punteggiatura finale (così "…(vedi http://x.it)." resta pulito)

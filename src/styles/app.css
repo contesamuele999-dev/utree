@@ -1732,3 +1732,9 @@ a { color: var(--accent); text-decoration: none; }
 .kb-card:disabled { cursor: default; opacity: .75; }
 .kb-gira { animation: kb-gira 1.2s ease-in-out infinite; }
 @keyframes kb-gira { 50% { transform: scale(1.2) rotate(-12deg); } }
+.links-filtro { max-width: 180px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; font: inherit; font-size: 12px; }
+@media (max-width: 600px) { .links-filtro { max-width: 120px; } .links-stat { display: none; } }
+.kb-avviso { margin: 0; padding: 10px 12px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, #e0a83a 45%, var(--border)); background: color-mix(in srgb, #e0a83a 8%, var(--panel)); font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.kb-avviso b { color: var(--text); }
+.kb-basi { display: flex; gap: 6px; flex-wrap: wrap; }
+.kb-add { color: var(--text-dim); justify-content: center; }

@@ -21,7 +21,7 @@ const Tree = lazy(() => import('./views/Tree.jsx'))
 const Links = lazy(() => import('./views/Links.jsx'))
 const Progress = lazy(() => import('./views/Progress.jsx'))
 const Knowledge = lazy(() => import('./views/Knowledge.jsx'))
-import { IS_KB } from '../supabase/functions/_shared/agente.js'
+import { KB_VISTE } from '../supabase/functions/_shared/agente.js'
 const Stats = lazy(() => import('./views/Stats.jsx'))
 const Profile = lazy(() => import('./views/Profile.jsx'))
 const Team = lazy(() => import('./views/Team.jsx'))
@@ -856,6 +856,25 @@ export default function App() {
     }})
   }
 
+  // Nuova knowledge base: visione "Knowledge · nome" con Temi e Da valutare già pronti
+  // (privacy alta di default). La scheda Knowledge la seleziona subito.
+  const addKnowledgeBase = () => {
+    setPrompt({ titolo: 'Nuova knowledge base', label: 'Di cosa parla? (es. Taiji, Marketing)', valore: '', onOk: async (nome) => {
+      const vita = await ensureVita()
+      const v = await store.insert('visioni', { vita_id: vita.id, titolo: `Knowledge · ${nome}`, colore: '#3b82c4', ordine: visioni.length })
+      setVisioni(prev => [...prev, v])
+      const nuove = []
+      for (const [i, [titolo, righe]] of KB_VISTE.entries()) {
+        nuove.push(await store.insert('viste', {
+          visione_id: v.id, titolo, is_template: false, livello: 0, parent_id: null, pos_x: 0, pos_y: 0, ordine: i, stage: 'note',
+          blocchi: righe.map((r, j) => ({ id: `b${j + 1}`, text: r.trimStart(), ...(r.startsWith('  ') ? { indent: 1 } : {}) })),
+        }))
+      }
+      setViste(prev => [...prev, ...nuove])
+      try { localStorage.setItem('utree-kb-sel', v.id) } catch { /* solo comodità */ }
+    }})
+  }
+
   // ＋ dalla scheda Today: una nuova attività per la giornata di oggi.
   const addTaskOggi = () => {
     setPrompt({ titolo: 'Nuova task di oggi', label: 'Cosa vuoi fare oggi?', valore: '', onOk: async (testo) => {
@@ -1476,9 +1495,8 @@ export default function App() {
               : <Empty msg="Crea qualche vista e collegale con ((Nome vista)) per vedere la mappa." />
           )}
           {tab === 'kb' && (
-            visioni.some(v => IS_KB.test(v.titolo || ''))
-              ? <Knowledge viste={visteConFasi} visioni={visioni} onOpen={openFromList} onAggiorna={reload} />
-              : <Empty msg='Crea una visione con "Knowledge" o "Banca dati" nel nome: le sue viste compaiono qui.' />
+            <Knowledge viste={visteConFasi} visioni={visioni} onOpen={openFromList} onAggiorna={reload}
+              onNuovaBase={addKnowledgeBase} onNuovaVista={(visioneId) => addVista({ visioneId, open: true })} />
           )}
           {tab === 'progress' && (
             <Progress viste={visteConFasi} onOpen={openFromList} onSetStage={setStage} />

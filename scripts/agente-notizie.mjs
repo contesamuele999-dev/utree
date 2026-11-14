@@ -5,7 +5,7 @@
  * pulsante "Cerca ora" della scheda Knowledge: entra con il tuo account e
  * chiama la Edge Function `agente-notizie`, prima "avvia" (integra le
  * proposte approvate) e poi un tema alla volta. La logica è tutta lì
- * (supabase/functions/agente-notizie + _shared/agente.js).
+ * (supabase/functions/agente-notizie + _shared/agente.js). Passa su tutte le knowledge base.
  *
  * Configurazione nel .env: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, UTREE_EMAIL, UTREE_PASSWORD.
  * Uso:  node scripts/agente-notizie.mjs
@@ -48,17 +48,21 @@ async function main() {
     return j;
   };
 
-  const { temi, integrate } = await chiama({ azione: "avvia" });
-  const rapporto = [`integrate ${integrate}`];
-  for (const tema of temi) {
-    try {
-      const r = await chiama({ azione: "tema", tema });
-      rapporto.push(`${tema}: ${r.novita} novità su ${r.candidati} candidati`);
-    } catch (e) {
-      rapporto.push(`${tema}: errore ${e.message}`);
+  const rapporto = [];
+  const { basi } = await chiama({ azione: "basi" });
+  for (const base of basi) {
+    const { temi, integrate } = await chiama({ azione: "avvia", visioneId: base.id });
+    rapporto.push(`[${base.titolo}] integrate ${integrate}`);
+    for (const tema of temi) {
+      try {
+        const r = await chiama({ azione: "tema", visioneId: base.id, tema });
+        rapporto.push(`${tema}: ${r.novita} novità su ${r.candidati} candidati`);
+      } catch (e) {
+        rapporto.push(`${tema}: errore ${e.message}`);
+      }
     }
   }
-  return rapporto.join(" · ");
+  return rapporto.join(" · ") || "nessuna knowledge base con Temi e Da valutare";
 }
 
 main()

@@ -7,8 +7,12 @@
 // chiamata, così ogni chiamata resta ben sotto il limite di tempo delle
 // Edge Function e il pulsante può mostrare l'avanzamento.
 //
-//   { azione: "avvia" }        → integra le proposte approvate, ritorna i temi
-//   { azione: "tema", tema }   → cerca le novità del tema e le aggiunge a "📥 Da valutare"
+//   { azione: "basi" }                    → le knowledge base con Temi e Da valutare
+//   { azione: "avvia", visioneId }        → integra le proposte approvate, ritorna i temi
+//   { azione: "tema", visioneId, tema }   → cerca le novità del tema e le aggiunge a "📥 Da valutare"
+//
+// Privacy: si legge solo dentro la knowledge base scelta; con "Privacy: alta" (default)
+// a Gemini arriva solo il nome del tema. Niente contenuti nei log.
 //
 // Autorizzazione: il JWT di chi chiama, niente service_role: le RLS decidono
 // cosa si legge e si scrive, come nell'app.
@@ -20,7 +24,7 @@
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
-  IS_KB, aMarkdown, elencoTemi, giaVisti, oggiIso, parseProposte, ricercaTema,
+  IS_KB, aMarkdown, elencoTemi, giaVisti, oggiIso, parseProposte, privacyAlta, ricercaTema,
   righeInBlocchi, righeIntegrazione, togliIntegrate,
 } from '../_shared/agente.js'
 
@@ -45,26 +49,35 @@ Deno.serve(async (req) => {
   if (!ud?.user) return json({ error: 'Non autenticato' }, 401)
 
   try {
-    const { azione, tema } = await req.json()
+    const { azione, tema, visioneId } = await req.json()
     const oggi = oggiIso()
 
     // le knowledge base: visioni con "knowledge", "banca dati" o "KB" nel nome
     const { data: visioni, error: ev } = await sb.from('visioni').select('id,titolo')
     if (ev) throw ev
-    const kbIds = (visioni || []).filter((v) => IS_KB.test(v.titolo || '')).map((v) => v.id)
-    const { data: kb, error: ek } = await sb.from('viste').select('id,titolo,blocchi,visione_id').in('visione_id', kbIds)
+    const basi = (visioni || []).filter((v) => IS_KB.test(v.titolo || ''))
+    const { data: tutte, error: ek } = await sb.from('viste').select('id,titolo,blocchi,visione_id').in('visione_id', basi.map((b) => b.id))
     if (ek) throw ek
-    const inbox = kb?.find((v) => (v.titolo || '').includes('Da valutare'))
-    const temi = kb?.find((v) => (v.titolo || '').includes('Temi da seguire'))
-    if (!inbox || !temi) return json({ error: 'Servono le viste "📥 Da valutare" e "🛰 Temi da seguire" in una visione Knowledge' }, 400)
+    const dellaBase = (id: string) => (tutte || []).filter((v) => v.visione_id === id)
+    const agenteDi = (id: string) => {
+      const kb = dellaBase(id)
+      return { kb, inbox: kb.find((v) => (v.titolo || '').includes('Da valutare')), temi: kb.find((v) => (v.titolo || '').includes('Temi da seguire')) }
+    }
 
-    // vista per titolo (prima fra le knowledge base, poi ovunque)
-    const vistaDi = async (titolo: string) => {
+    // elenco delle basi su cui l'agente può lavorare (per il giro settimanale)
+    if (azione === 'basi') {
+      return json({ basi: basi.filter((b) => { const a = agenteDi(b.id); return a.inbox && a.temi }).map((b) => ({ id: b.id, titolo: b.titolo })) })
+    }
+
+    const scelta = visioneId ? basi.find((b) => b.id === visioneId) : basi.find((b) => { const a = agenteDi(b.id); return a.inbox && a.temi })
+    if (!scelta) return json({ error: 'Knowledge base non trovata' }, 404)
+    const { kb, inbox, temi } = agenteDi(scelta.id)
+    if (!inbox || !temi) return json({ error: `In "${scelta.titolo}" servono le viste "📥 Da valutare" e "🛰 Temi da seguire"` }, 400)
+
+    // vista per titolo, SOLO dentro questa knowledge base: niente fuori finisce a Gemini
+    const vistaDi = (titolo: string) => {
       const t = titolo.trim().toLowerCase()
-      const inKb = kb!.find((v) => (v.titolo || '').trim().toLowerCase() === t)
-      if (inKb) return inKb
-      const { data } = await sb.from('viste').select('id,titolo,blocchi,visione_id').ilike('titolo', titolo.trim()).limit(1)
-      return data?.[0] || null
+      return kb.find((v) => (v.titolo || '').trim().toLowerCase() === t) || null
     }
     const salva = async (id: string, blocchi: unknown[]) => {
       const { error } = await sb.from('viste').update({ blocchi }).eq('id', id)
@@ -75,7 +88,7 @@ Deno.serve(async (req) => {
       const blocchi = inbox.blocchi || []
       const fatte = parseProposte(blocchi).filter((p) => p.approvata)
       for (const p of fatte) {
-        let dest = await vistaDi(p.vista)
+        let dest = vistaDi(p.vista)
         if (!dest) {
           // tema libero senza vista: nasce nella knowledge base di "Da valutare"
           const { count } = await sb.from('viste').select('id', { count: 'exact', head: true }).eq('visione_id', inbox.visione_id)
@@ -95,10 +108,11 @@ Deno.serve(async (req) => {
     }
 
     if (azione === 'tema' && typeof tema === 'string' && tema.trim()) {
-      const vista = await vistaDi(tema)
+      const vista = vistaDi(tema)
       const r = await ricercaTema({
         tema, oggi,
-        giaSai: aMarkdown(vista?.blocchi || []).slice(0, 8000),
+        // privacy alta (default): a Gemini va solo il nome del tema, mai il testo della vista
+        giaSai: privacyAlta(temi.blocchi) ? '' : aMarkdown(vista?.blocchi || []).slice(0, 8000),
         visti: giaVisti(inbox.blocchi || []),
         dest: vista?.titolo || tema,
         key, modello: Deno.env.get('GEMINI_MODEL'),

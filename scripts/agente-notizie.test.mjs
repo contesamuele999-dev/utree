@@ -67,3 +67,13 @@ test("un preprint non può avere affidabilità alta", () => {
   const { righe } = righeProposte({ novita: [{ i: 0, titolo: "P", cosa_aggiunge: "x", affidabilita: "alta", motivo: "m" }] }, [{ url: "u", fonte: "preprint", data: "d" }], "Respiro");
   assert.match(righe[2], /affidabilità: media \(preprint\)/);
 });
+
+test("privacy alta di default; normale solo se scritto; i temi ignorano la riga privacy", async () => {
+  const { privacyAlta, KB_VISTE } = await import("../supabase/functions/_shared/agente.js");
+  assert.equal(privacyAlta([]), true);
+  assert.equal(privacyAlta([{ text: "Privacy: alta" }]), true);
+  assert.equal(privacyAlta([{ text: "Privacy: normale" }]), false);
+  const temi = KB_VISTE[0][1].map((t) => ({ text: t.trimStart(), ...(t.startsWith("  ") ? { indent: 1 } : {}) }));
+  assert.equal(privacyAlta(temi), true);
+  assert.deepEqual(elencoTemi(temi), []);   // la nuova base nasce senza temi (riga vuota ignorata)
+});

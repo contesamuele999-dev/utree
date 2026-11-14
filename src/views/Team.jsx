@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { IS_KB } from '../../supabase/functions/_shared/agente.js'
 import {
   PERMESSI, etichettaPermesso, permessoVisione, permessoDelMembro, mieiTeamIds,
   creaTeam, rinominaTeam, eliminaTeam, invitaMembro, cambiaRuolo, rimuoviMembro,
@@ -36,7 +37,8 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
   }, [teams, membri, userId])
   const membriDi = (teamId) => membri.filter(m => m.team_id === teamId)
 
-  const miei = visioni.filter(v => permessoVisione(v, ctx) === 'proprietario')
+  // le knowledge base sono private: non compaiono fra i progetti condivisibili
+  const miei = visioni.filter(v => permessoVisione(v, ctx) === 'proprietario' && !IS_KB.test(v.titolo || ''))
   const altrui = visioni
     .map(v => ({ v, p: permessoVisione(v, ctx) }))
     .filter(x => x.p === 'vista' || x.p === 'modifica')

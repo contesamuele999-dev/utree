@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { RenderedBlock, evalFormula, COLORI } from '../lib/markdown.jsx'
-import { logChars } from '../lib/activity.js'
+import { logChars, totalChars } from '../lib/activity.js'
 import { cacheVistaLocal } from '../lib/localcache.js'
 import { STAGES, stageOf } from '../lib/stages.js'
 import { store } from '../lib/store.js'
@@ -51,7 +51,6 @@ function dueInfo(due) {
   return { cls: 'due-later', days, label: `tra ${days} g` }
 }
 
-const totalChars = (blocks) => (blocks || []).reduce((n, b) => n + (b.text?.length || 0), 0)
 const purgeTrash = (t) => (t || []).filter(x => x && x.deletedAt && Date.now() - x.deletedAt < SEVEN_DAYS)
 const relTime = (ts) => {
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000))

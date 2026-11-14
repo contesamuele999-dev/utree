@@ -91,6 +91,27 @@ export const giaVisti = (blocchi) => [
   ...blocchi.filter((b) => b.indent && /^\d{4}-\d\d-\d\d · /.test(b.text || "")).map((b) => b.text.slice(13)),
 ];
 
+/**
+ * Privacy della knowledge base, scritta nella vista "🛰 Temi da seguire":
+ *   "Privacy: alta"    (default, anche se la riga manca) → a Gemini va SOLO il nome del tema
+ *   "Privacy: normale" → anche il testo della vista del tema (proposte più mirate)
+ */
+export const privacyAlta = (blocchi) => !(blocchi || []).some((b) => /^privacy:\s*normale\b/i.test((b.text || "").trim()));
+
+/** Viste con cui nasce una nuova knowledge base. */
+export const KB_VISTE = [
+  ["🛰 Temi da seguire", [
+    `Come funziona: scrivi sotto "Temi" una riga per argomento. Può essere il titolo esatto di una vista di questa knowledge base oppure un tema libero. Ogni lunedì (o con "Cerca ora") l'agente cerca novità e le mette in "📥 Da valutare".`,
+    "Privacy: alta",
+    "  alta = a Gemini va solo il nome del tema · normale = anche il testo della vista del tema (proposte più mirate, ma il testo esce da uTree)",
+    "Temi",
+    "  ",
+  ]],
+  ["📥 Da valutare", [
+    `Come funziona: l'agente aggiunge qui le novità. Per ognuna metti la spunta (o scrivi "ok" in fondo alla riga) se va aggiunta; cancellala se non ti interessa. Alla ricerca successiva l'agente integra quelle approvate nella vista giusta.`,
+  ]],
+];
+
 /** Temi = righe rientrate sotto la riga "Temi". */
 export function elencoTemi(blocchi) {
   const i = blocchi.findIndex((b) => (b.text || "").trim().toLowerCase() === "temi");

@@ -28,5 +28,8 @@ export function logChars(delta) {
   save(map)
 }
 
+// Caratteri totali di una vista: il delta fra due salvataggi = lettere scritte.
+export const totalChars = (blocks) => (blocks || []).reduce((n, b) => n + (b.text?.length || 0), 0)
+
 // Ritorna la mappa completa { 'YYYY-MM-DD': { chars } }.
 export function getActivity() { return load() }

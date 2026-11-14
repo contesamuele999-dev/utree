@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { IS_KB } from '../../supabase/functions/_shared/agente.js'
 import { stageOf } from '../lib/stages.js'
 import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 
@@ -43,7 +44,10 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
   const [reorderOver, setReorderOver] = useState(null)       // { id, edge } per il riordino VISIONI (mostra una riga separatrice)
   const reorderRef = useRef(null)                            // ultimo edge "bloccato": serve per l'isteresi anti-tremolio
   const [dragVistaId, setDragVistaId] = useState(null)   // vista trascinata verso un'altra visione
-  const preview = (v) => (v.blocchi || []).map(b => b.text).join(' ').replace(/[#*`>]/g, '').slice(0, 140)
+  // link interni mostrati come nel testo: ((Vista|parola)) → parola, ((Vista)) / [[Vista]] → Vista
+  const preview = (v) => (v.blocchi || []).map(b => b.text).join(' ')
+    .replace(/\(\(([^()|]+)(?:\|([^()]+))?\)\)|\[\[([^\]]+)\]\]/g, (_, n, l, w) => l || n || w)
+    .replace(/[#*`>]/g, '').slice(0, 140)
 
   const q = query.trim().toLowerCase()
   // punteggio: 2 = match nel titolo (priorità), 1 = solo nel contenuto, 0 = nessun match
@@ -90,12 +94,16 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
   // Archivio: le visioni archiviate scendono in fondo, in un gruppo richiudibile.
   // Archiviare non nasconde e non cancella: toglie rumore da Pipe e smette di
   // proporre le loro righe scadute in Today.
-  const attive = sezioni.filter(s => !s.vis.archiviata)
+  // Le knowledge base stanno in un gruppo a parte, sotto le visioni di lavoro.
+  const attiveTutte = sezioni.filter(s => !s.vis.archiviata)
+  const attive = attiveTutte.filter(s => !IS_KB.test(s.vis.titolo || ''))
+  const basi = attiveTutte.filter(s => IS_KB.test(s.vis.titolo || ''))
   const archiviate = sezioni.filter(s => s.vis.archiviata)
   // durante una ricerca l'archivio si apre da solo: cercare deve trovare tutto
   const mostraArchivio = archivioAperto || !!q
   const daMostrare = [
     ...attive,
+    ...(basi.length ? [{ kbHeader: true, n: basi.length }, ...basi] : []),
     ...(archiviate.length ? [{ archivioHeader: true, n: archiviate.length }] : []),
     ...(mostraArchivio ? archiviate : []),
   ]
@@ -171,6 +179,12 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
         // voce sentinella: la riga separatrice del gruppo "Archivio".
         // Sta dentro l'elenco (invece che in un secondo map) così la sezione
         // di una visione resta definita in un punto solo.
+        if (sez.kbHeader) return (
+          <div key="__kb__" className="archivio-head kb-head">
+            <span className="archivio-toggle">📚 Knowledge base · {sez.n}</span>
+            <span className="crumb">Private: non si condividono in team. Si gestiscono dalla scheda Knowledge.</span>
+          </div>
+        )
         if (sez.archivioHeader) return (
           <div key="__archivio__" className="archivio-head">
             <button className="archivio-toggle" onClick={() => setArchivioAperto(a => !a)}>
@@ -253,8 +267,10 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
             {mioProgetto(vis) && (
               <>
                 <button className="iconbtn mini" title="Rinomina" onClick={() => onRenameVisione(vis)}>✎</button>
-                <button className="iconbtn mini" title="Condividi questo progetto con un team"
-                  onClick={() => onApriTeam?.()}>👥</button>
+                {!IS_KB.test(vis.titolo || '') && (
+                  <button className="iconbtn mini" title="Condividi questo progetto con un team"
+                    onClick={() => onApriTeam?.()}>👥</button>
+                )}
                 <button className={'iconbtn mini' + (vis.archiviata ? ' on' : '')}
                   title={vis.archiviata
                     ? 'Togli dall’archivio: tornerà in cima e proporrà di nuovo le sue scadenze in Today'

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { stageOf } from '../lib/stages.js'
+import { IS_KB } from '../../supabase/functions/_shared/agente.js'
 
 // ============================================================
 // Links — mappa delle connessioni tra le viste (stile Obsidian).
@@ -12,12 +13,12 @@ import { stageOf } from '../lib/stages.js'
 // estrae i nomi collegati (in minuscolo) dal testo di una vista
 function linkNamesOf(vista) {
   const out = new Set()
-  const re = /\(\(([^)]+)\)\)|\[\[([^\]]+)\]\]/g
+  const re = /\(\(([^()]+)\)\)|\[\[([^\]]+)\]\]/g
   for (const b of vista.blocchi || []) {
     const t = b.text || ''
     let m
     while ((m = re.exec(t)) !== null) {
-      const name = (m[1] || m[2] || '').trim().toLowerCase()
+      const name = (m[1] || m[2] || '').split('|')[0].trim().toLowerCase()   // ((Vista|parola))
       if (name) out.add(name)
     }
   }
@@ -31,10 +32,13 @@ export default function Links({ viste = [], visioni = [], onOpen }) {
   const [, setTick] = useState(0)
   const [hover, setHover] = useState(null)
   const [showIsolated, setShowIsolated] = useState(true)
+  const [filtro, setFiltro] = useState('')   // id visione: solo le sue viste e i link fra loro
+  // visioni nel menu: prima le knowledge base
+  const visioniMenu = useMemo(() => [...visioni.filter(v => IS_KB.test(v.titolo || '')), ...visioni.filter(v => !IS_KB.test(v.titolo || ''))], [visioni])
 
   // ---- costruzione del grafo (nodi = viste, archi = link interni) ----
   const graph = useMemo(() => {
-    const reali = viste.filter(v => !v.is_template)
+    const reali = viste.filter(v => !v.is_template && (!filtro || v.visione_id === filtro))
     const byName = new Map()
     for (const v of reali) {
       const k = (v.titolo || '').trim().toLowerCase()
@@ -64,7 +68,7 @@ export default function Links({ viste = [], visioni = [], onOpen }) {
     }
     for (const n of nodes) n.deg = degree.get(n.id) || 0
     return { nodes, edges }
-  }, [viste])
+  }, [viste, filtro])
 
   // stato fisico dei nodi (in un ref: aggiornato ~60fps senza re-render pesanti)
   const simRef = useRef(new Map())   // id -> { x, y, vx, vy, fx, fy }
@@ -227,7 +231,7 @@ export default function Links({ viste = [], visioni = [], onOpen }) {
   const visIds = new Set(visible.map(n => n.id))
   const visEdges = edges.filter(e => visIds.has(e.source) && visIds.has(e.target))
 
-  if (!nodes.length) {
+  if (!nodes.length && !filtro) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-dim)' }}>
       Nessuna vista da collegare. Crea qualche vista e collegale con ((Nome vista)).
     </div>
@@ -236,6 +240,10 @@ export default function Links({ viste = [], visioni = [], onOpen }) {
   return (
     <div className="links-wrap" ref={wrapRef}>
       <div className="links-bar" data-noswipe="">
+        <select className="links-filtro" value={filtro} onChange={e => setFiltro(e.target.value)} title="Mostra solo le viste di una visione">
+          <option value="">Tutte le visioni</option>
+          {visioniMenu.map(v => <option key={v.id} value={v.id}>{IS_KB.test(v.titolo || '') ? '📚 ' : ''}{v.titolo}</option>)}
+        </select>
         <span className="links-stat">{nodes.length} viste · {edges.length} collegamenti</span>
         <button className={'pillbtn' + (!showIsolated ? ' on' : '')} title="Mostra solo le viste collegate (nascondi quelle isolate)"
           onClick={() => setShowIsolated(s => !s)}>{showIsolated ? '🔗 Solo link' : '👁 Solo link'}</button>

@@ -1,16 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, hasSupabase } from '../lib/supabase.js'
-import { IS_KB } from '../../supabase/functions/_shared/agente.js'
+import { IS_KB, elencoTemi, privacyAlta } from '../../supabase/functions/_shared/agente.js'
 
 // ============================================================
 // KNOWLEDGE — le knowledge base. Sono le visioni con "knowledge",
-// "banca dati" o "KB" nel nome: in cima la casella dell'agente
-// notizie (📥 Da valutare, 🛰 Temi da seguire), sotto le viste di
-// ogni base in albero, con ricerca dentro il testo delle righe.
+// "banca dati" o "KB" nel nome; se ne sceglie una dai chip in alto.
+// Per la base scelta: la casella dell'agente notizie (📥 Da valutare,
+// 🛰 Temi da seguire, 🔎 Cerca ora), le sue viste in albero e la
+// ricerca dentro il testo delle righe.
 // ============================================================
 const PROPOSTA = /^(Novità|Metodo)\s*·/i
+const SEL_KEY = 'utree-kb-sel'
 const approvata = (b) => !!b.done || /\bok\s*$/i.test(b.text || '')
-const pulito = (t) => (t || '').replace(/\*\*|`/g, '').replace(/\{[a-z]+:([^}]*)\}/g, '$1')
+const pulito = (t) => (t || '').replace(/\*\*|`/g, '').replace(/\(\(([^()|]+)\|([^()]+)\)\)/g, '$2').replace(/\{[a-z]+:([^}]*)\}/g, '$1')
+const leggiSel = () => { try { return localStorage.getItem(SEL_KEY) } catch { return null } }
+const scriviSel = (id) => { try { localStorage.setItem(SEL_KEY, id) } catch { /* solo comodità */ } }
 
 // chiama la Edge Function dell'agente; l'errore vero sta nel corpo della risposta
 async function agente(body) {
@@ -23,19 +27,59 @@ async function agente(body) {
   return data
 }
 
-export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna }) {
+export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna, onNuovaBase, onNuovaVista }) {
   const [query, setQuery] = useState('')
   const [giro, setGiro] = useState(null)   // { msg, attivo } durante e dopo "Cerca ora"
+  const [selId, setSelId] = useState(leggiSel)
+  const q = query.trim().toLowerCase()
+
+  const basi = visioni.filter(v => IS_KB.test(v.titolo || ''))
+  const base = basi.find(b => b.id === selId) || basi[0]
+  const scegli = (id) => { setSelId(id); scriviSel(id); setQuery('') }
+  // appena nasce una base nuova (＋ Nuova) la si apre
+  const visti = useRef(null)
+  useEffect(() => {
+    const ids = basi.map(b => b.id)
+    const nuova = visti.current && ids.find(id => !visti.current.includes(id))
+    if (nuova) scegli(nuova)
+    visti.current = ids
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [basi.map(b => b.id).join()])
+
+  const { inbox, temi, righe } = useMemo(() => {
+    const kb = viste.filter(v => v.visione_id === base?.id && !v.is_template)
+    const inbox = kb.find(v => (v.titolo || '').includes('Da valutare'))
+    const temi = kb.find(v => (v.titolo || '').includes('Temi da seguire'))
+    // albero (genitore → figli), senza le due viste dell'agente
+    const resto = kb.filter(v => v !== inbox && v !== temi)
+    const presenti = new Set(resto.map(v => v.id))
+    const figli = {}
+    const radici = []
+    for (const v of resto) {
+      if (v.parent_id && presenti.has(v.parent_id)) (figli[v.parent_id] ||= []).push(v)
+      else radici.push(v)
+    }
+    const ord = (a, b) => (a.ordine || 0) - (b.ordine || 0)
+    const appiattisci = (lista, depth) => lista.sort(ord).flatMap(v => [{ v, depth }, ...appiattisci(figli[v.id] || [], depth + 1)])
+    return { inbox, temi, righe: appiattisci(radici, 0) }
+  }, [viste, base?.id])
+
+  const proposte = (inbox?.blocchi || []).filter(b => !b.indent && PROPOSTA.test(b.text || ''))
+  const nuove = proposte.filter(b => !approvata(b)).length
+  const approvate = proposte.length - nuove
+  const nTemi = temi ? elencoTemi(temi.blocchi || []).length : 0
+  const privata = privacyAlta(temi?.blocchi)
 
   // stesso giro della pianificazione del lunedì: integra le approvate, poi un tema per chiamata
   const cercaOra = async () => {
+    const visioneId = base.id
     setGiro({ msg: 'Integro le proposte approvate…', attivo: true })
     try {
-      const { temi, integrate } = await agente({ azione: 'avvia' })
+      const { temi, integrate } = await agente({ azione: 'avvia', visioneId })
       let trovate = 0, errori = 0
       for (let i = 0; i < temi.length; i++) {
         setGiro({ msg: `${temi[i]} · ${i + 1}/${temi.length}`, attivo: true })
-        try { trovate += (await agente({ azione: 'tema', tema: temi[i] })).novita } catch { errori++ }
+        try { trovate += (await agente({ azione: 'tema', visioneId, tema: temi[i] })).novita } catch { errori++ }
       }
       setGiro({ msg: `${trovate} novità trovate${integrate ? ` · ${integrate} integrate` : ''}${errori ? ` · ${errori} temi non riusciti` : ''}` })
     } catch (e) {
@@ -43,82 +87,80 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
     }
     onAggiorna?.()
   }
-  const q = query.trim().toLowerCase()
 
-  const { basi, inbox, temi } = useMemo(() => {
-    const kbVisioni = visioni.filter(v => IS_KB.test(v.titolo || ''))
-    const ids = new Set(kbVisioni.map(v => v.id))
-    const kb = viste.filter(v => ids.has(v.visione_id) && !v.is_template)
-    const inbox = kb.find(v => (v.titolo || '').includes('Da valutare'))
-    const temi = kb.find(v => (v.titolo || '').includes('Temi da seguire'))
-    // albero per visione (genitore → figli), senza le due viste dell'agente
-    const resto = kb.filter(v => v !== inbox && v !== temi)
-    const presenti = new Set(resto.map(v => v.id))
-    const figli = {}
-    const radici = {}
-    for (const v of resto) {
-      if (v.parent_id && presenti.has(v.parent_id)) (figli[v.parent_id] ||= []).push(v)
-      else (radici[v.visione_id] ||= []).push(v)
-    }
-    const ord = (a, b) => (a.ordine || 0) - (b.ordine || 0)
-    const appiattisci = (lista, depth) => lista.sort(ord).flatMap(v => [{ v, depth }, ...appiattisci(figli[v.id] || [], depth + 1)])
-    const basi = kbVisioni.map(vi => ({ visione: vi, righe: appiattisci(radici[vi.id] || [], 0) }))
-    return { basi, inbox, temi }
-  }, [viste, visioni])
-
-  const proposte = (inbox?.blocchi || []).filter(b => !b.indent && PROPOSTA.test(b.text || ''))
-  const nuove = proposte.filter(b => !approvata(b)).length
-  const approvate = proposte.length - nuove
-
-  // ricerca: le righe che contengono il testo, in tutte le viste delle basi
+  // ricerca: le righe che contengono il testo, nella base scelta
   const trovate = useMemo(() => {
     if (!q) return []
-    return basi.flatMap(({ righe }) => righe.flatMap(({ v }) => {
+    return righe.flatMap(({ v }) => {
       const inTitolo = (v.titolo || '').toLowerCase().includes(q)
       const hit = (v.blocchi || []).filter(b => pulito(b.text).toLowerCase().includes(q)).slice(0, 3)
       return inTitolo || hit.length ? [{ v, hit }] : []
-    }))
-  }, [q, basi])
+    })
+  }, [q, righe])
 
   return (
     <div className="kb-wrap">
-      <div className="kb-agente">
-        {inbox && (
-          <button className="kb-card kb-inbox" onClick={() => onOpen(inbox)}>
-            <span className="kb-card-ico">📥</span>
-            <span className="kb-card-txt"><b>Da valutare</b>
-              <span>{nuove ? `${nuove} novità da valutare` : 'Nessuna novità in attesa'}{approvate ? ` · ${approvate} approvate, entrano alla prossima ricerca` : ''}</span>
-            </span>
-            {nuove > 0 && <span className="kb-badge">{nuove}</span>}
+      <div className="kb-basi" role="tablist">
+        {basi.map(b => (
+          <button key={b.id} role="tab" aria-selected={b.id === base?.id}
+            className={'chip' + (b.id === base?.id ? ' active' : '')} onClick={() => scegli(b.id)}>
+            📚 {b.titolo.replace(/^knowledge\s*[·:\-–]\s*/i, '')}
           </button>
-        )}
-        {temi && (
-          <button className="kb-card" onClick={() => onOpen(temi)}>
-            <span className="kb-card-ico">🛰</span>
-            <span className="kb-card-txt"><b>Temi da seguire</b>
-              <span>{(temi.blocchi || []).filter(b => b.indent && b.text?.trim()).length} temi seguiti dall'agente</span>
-            </span>
-          </button>
-        )}
-        {inbox && (
-          <button className="kb-card" onClick={cercaOra} disabled={!hasSupabase || giro?.attivo}
-            title={hasSupabase ? "Lancia adesso la ricerca dell'agente su tutti i temi" : 'Disponibile solo con il cloud'}>
-            <span className={'kb-card-ico' + (giro?.attivo ? ' kb-gira' : '')}>🔎</span>
-            <span className="kb-card-txt"><b>{giro?.attivo ? 'Ricerca in corso…' : 'Cerca ora'}</b>
-              <span>{giro?.msg || 'Ogni lunedì parte da sola'}</span>
-            </span>
-          </button>
-        )}
+        ))}
+        <button className="chip" title="Crea una nuova knowledge base (con Temi e Da valutare già pronti)" onClick={onNuovaBase}>＋ Nuova</button>
       </div>
 
-      <div className="pipe-search">
-        <span className="pipe-search-ico">🔍</span>
-        <input className="pipe-search-input" value={query} onChange={e => setQuery(e.target.value)}
-          placeholder="Cerca nelle knowledge base…" />
-        {query && <button className="pipe-search-clear" title="Pulisci" onClick={() => setQuery('')}>✕</button>}
-      </div>
+      {!base && <p className="kb-vuoto">Nessuna knowledge base: crea la prima con ＋ Nuova.</p>}
 
-      {q ? (
+      {base && (
+        <div className="kb-agente">
+          {inbox && (
+            <button className="kb-card kb-inbox" onClick={() => onOpen(inbox)}>
+              <span className="kb-card-ico">📥</span>
+              <span className="kb-card-txt"><b>Da valutare</b>
+                <span>{nuove ? `${nuove} novità da valutare` : 'Nessuna novità in attesa'}{approvate ? ` · ${approvate} approvate, entrano alla prossima ricerca` : ''}</span>
+              </span>
+              {nuove > 0 && <span className="kb-badge">{nuove}</span>}
+            </button>
+          )}
+          {temi && (
+            <button className="kb-card" onClick={() => onOpen(temi)}>
+              <span className="kb-card-ico">🛰</span>
+              <span className="kb-card-txt"><b>Temi da seguire</b>
+                <span>{nTemi} temi · privacy {privata ? 'alta 🔒' : 'normale'}</span>
+              </span>
+            </button>
+          )}
+          {inbox && temi && (
+            <button className="kb-card" onClick={cercaOra} disabled={!hasSupabase || giro?.attivo || !nTemi}
+              title={hasSupabase ? "Lancia adesso la ricerca dell'agente sui temi di questa base" : 'Disponibile solo con il cloud'}>
+              <span className={'kb-card-ico' + (giro?.attivo ? ' kb-gira' : '')}>🔎</span>
+              <span className="kb-card-txt"><b>{giro?.attivo ? 'Ricerca in corso…' : 'Cerca ora'}</b>
+                <span>{giro?.msg || (nTemi ? 'Ogni lunedì parte da sola' : 'Aggiungi prima un tema')}</span>
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {base && (
+        <p className="kb-avviso">
+          {privata
+            ? <>🔒 <b>Privacy alta</b>: quando l'agente cerca, a <b>Google Gemini</b> (piano gratuito) arrivano solo i <b>nomi dei temi</b> e i titoli delle proposte, mai il testo delle tue viste. Le knowledge base non si possono condividere in team.</>
+            : <>⚠️ <b>Privacy normale</b>: quando l'agente cerca, il <b>testo delle viste</b> dei Temi da seguire arriva a <b>Google Gemini</b> (piano gratuito), che può usarlo per migliorare i suoi servizi. Per tenerlo in uTree scrivi "Privacy: alta" in Temi da seguire.</>}
+        </p>
+      )}
+
+      {base && (
+        <div className="pipe-search">
+          <span className="pipe-search-ico">🔍</span>
+          <input className="pipe-search-input" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder={`Cerca in ${base.titolo}…`} />
+          {query && <button className="pipe-search-clear" title="Pulisci" onClick={() => setQuery('')}>✕</button>}
+        </div>
+      )}
+
+      {base && (q ? (
         <div className="kb-list">
           {!trovate.length && <p className="kb-vuoto">Niente per "{query}".</p>}
           {trovate.map(({ v, hit }) => (
@@ -128,19 +170,17 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
             </button>
           ))}
         </div>
-      ) : basi.map(({ visione, righe }) => (
-        <section key={visione.id} className="kb-base">
-          <h3 className="kb-base-tit" style={{ '--kb-col': visione.colore || 'var(--green)' }}>{visione.titolo}</h3>
-          <div className="kb-list">
-            {!righe.length && <p className="kb-vuoto">Ancora nessuna vista.</p>}
-            {righe.map(({ v, depth }) => (
-              <button key={v.id} className="kb-row" style={{ paddingLeft: 12 + depth * 20 }} onClick={() => onOpen(v)}>
-                <span>{v.titolo || 'Senza titolo'}</span>
-                <span className="kb-n">{(v.blocchi || []).filter(b => b.text?.trim()).length}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+      ) : (
+        <div className="kb-list">
+          {!righe.length && <p className="kb-vuoto">Ancora nessuna vista in questa base.</p>}
+          {righe.map(({ v, depth }) => (
+            <button key={v.id} className="kb-row" style={{ paddingLeft: 12 + depth * 20 }} onClick={() => onOpen(v)}>
+              <span>{v.titolo || 'Senza titolo'}</span>
+              <span className="kb-n">{(v.blocchi || []).filter(b => b.text?.trim()).length}</span>
+            </button>
+          ))}
+          <button className="kb-row kb-add" onClick={() => onNuovaVista?.(base.id)}>＋ Nuova vista in questa base</button>
+        </div>
       ))}
     </div>
   )
