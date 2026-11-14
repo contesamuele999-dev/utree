@@ -21,7 +21,8 @@ const Tree = lazy(() => import('./views/Tree.jsx'))
 const Links = lazy(() => import('./views/Links.jsx'))
 const Progress = lazy(() => import('./views/Progress.jsx'))
 const Knowledge = lazy(() => import('./views/Knowledge.jsx'))
-import { KB_VISTE } from '../supabase/functions/_shared/agente.js'
+import { IS_KB, KB_VISTE } from '../supabase/functions/_shared/agente.js'
+import { scegliRipasso, PREFISSO } from './lib/ripasso.js'
 const Stats = lazy(() => import('./views/Stats.jsx'))
 const Profile = lazy(() => import('./views/Profile.jsx'))
 const Team = lazy(() => import('./views/Team.jsx'))
@@ -166,6 +167,20 @@ export default function App() {
     else setTimeout(() => taskInVolo.current.delete(id), 2000)
   }
 
+  // Ripasso delle knowledge base: una vista al giorno in Today, a intervalli crescenti
+  // (lib/ripasso.js). Il flag del giorno evita doppioni se `reload` gira più volte.
+  // Sta PRIMA di `reload`: reload è un useCallback del primo render, che esce presto
+  // (caricamento) — una funzione definita più in basso lì non esisterebbe ancora.
+  const ripassoDelGiorno = async (tk, vs, vst) => {
+    const oggi = todayKey(), flag = 'utree-ripasso-' + oggi
+    try { if (localStorage.getItem(flag)) return } catch { /* senza storage: decide solo lo storico */ }
+    const v = scegliRipasso(vst || [], vs || [], tk || [], oggi)
+    if (!v) return
+    try { localStorage.setItem(flag, '1') } catch { /* ignore */ }
+    const ordini = (tk || []).filter(t => t.giorno === oggi).map(t => t.ordine || 0)
+    await addTask({ text: `${PREFISSO}((${v.titolo}))`, giorno: oggi, ordine: (ordini.length ? Math.max(...ordini) : 0) + 1 })
+  }
+
   const reload = useCallback(async () => {
     const t0 = Date.now()
     // Prima di leggere: se ci sono scritture rimaste in coda (fatte offline) le
@@ -240,6 +255,7 @@ export default function App() {
     setLinks(allLinks.filter(l => ids.has(l.da_vista) && ids.has(l.a_vista)))
     flushDirtyToCloud(store)   // ri-spedisce in background ciò che non era stato salvato sul cloud
     manutenzioneToday(allTask, allRegole)
+    ripassoDelGiorno(allTask, vs, merged).catch(() => { /* il ripasso non deve mai fermare il caricamento */ })
     // TEAM: gira per ultimo e non blocca niente. Alla prima lettura della sessione
     // aggancia gli inviti ricevuti per email all'account collegato adesso.
     if (!invitiCollegati.current) {
@@ -814,6 +830,37 @@ export default function App() {
     })
   }, [task, viste])
 
+  // Condividi → uTree (Web Share Target della PWA installata): il link o il testo condiviso
+  // finisce in "📥 Da valutare" della knowledge base scelta, da approvare come le altre.
+  // (sta prima dei return anticipati: gli hook devono girare sempre nello stesso ordine.
+  //  saveVista/tuid si usano solo a viste caricate, quando sono già definiti)
+  const condivisoFatto = useRef(false)
+  useEffect(() => {
+    if (condivisoFatto.current) return
+    const p = new URLSearchParams(window.location.search)
+    const url = p.get('kb_url') || '', testo = p.get('kb_text') || '', titolo = p.get('kb_title') || ''
+    if (!url && !testo && !titolo) { condivisoFatto.current = true; return }
+    const basi = visioni.filter(v => IS_KB.test(v.titolo || ''))
+    let sel = null
+    try { sel = localStorage.getItem('utree-kb-sel') } catch { /* ignore */ }
+    const base = basi.find(b => b.id === sel) || basi[0]
+    const inbox = base && viste.find(v => v.visione_id === base.id && (v.titolo || '').includes('Da valutare'))
+    if (!inbox) return   // dati non ancora caricati: si riprova al prossimo giro
+    condivisoFatto.current = true
+    const link = url || (testo.match(/https?:\/\/\S+/) || [])[0] || ''
+    const nota = testo.replace(link, '').trim()
+    const righe = [
+      `Novità · ${(titolo || nota || link).replace(/\s+/g, ' ').slice(0, 90)} → vista: Da smistare`,
+      `  Cosa aggiunge: ${nota || '(da completare)'}`,
+      `  Fonte: ${link || '—'} (condiviso da te, ${todayKey()}) · affidabilità: da valutare, condiviso a mano`,
+    ]
+    saveVista({ ...inbox, blocchi: [...(inbox.blocchi || []), ...righe.map(r => ({ id: tuid(), text: r.trimStart(), ...(r.startsWith('  ') ? { indent: 1 } : {}) }))] })
+    window.history.replaceState(null, '', window.location.pathname)
+    try { localStorage.setItem('utree-kb-sel', base.id) } catch { /* ignore */ }
+    setVistaAperta(null); setPage(null); setTab('kb')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visioni, viste])
+
   if (loading) return <div style={{display:'grid',placeItems:'center',height:'100dvh'}}>Caricamento…</div>
   if (!user) return <Auth />
 
@@ -874,6 +921,8 @@ export default function App() {
       try { localStorage.setItem('utree-kb-sel', v.id) } catch { /* solo comodità */ }
     }})
   }
+
+
 
   // ＋ dalla scheda Today: una nuova attività per la giornata di oggi.
   const addTaskOggi = () => {
@@ -1496,7 +1545,7 @@ export default function App() {
           )}
           {tab === 'kb' && (
             <Knowledge viste={visteConFasi} visioni={visioni} onOpen={openFromList} onAggiorna={reload}
-              onNuovaBase={addKnowledgeBase} onNuovaVista={(visioneId) => addVista({ visioneId, open: true })} />
+              onNuovaBase={addKnowledgeBase} onNuovaVista={(visioneId) => addVista({ visioneId, open: true })} onSalvaVista={saveVista} />
           )}
           {tab === 'progress' && (
             <Progress viste={visteConFasi} onOpen={openFromList} onSetStage={setStage} />

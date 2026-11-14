@@ -37,8 +37,15 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
   }, [teams, membri, userId])
   const membriDi = (teamId) => membri.filter(m => m.team_id === teamId)
 
-  // le knowledge base sono private: non compaiono fra i progetti condivisibili
-  const miei = visioni.filter(v => permessoVisione(v, ctx) === 'proprietario' && !IS_KB.test(v.titolo || ''))
+  const miei = visioni.filter(v => permessoVisione(v, ctx) === 'proprietario')
+  // Le knowledge base sono private per scelta: condividerle chiede DUE conferme esplicite.
+  const confermaKB = (v, nomeTeam) => !IS_KB.test(v.titolo || '') || (
+    window.confirm(`"${v.titolo}" è una knowledge base, pensata come privata.
+
+Condividendola con "${nomeTeam}" ogni membro potrà leggere TUTTE le sue viste (e modificarle se dai il permesso di modifica). Continuare?`)
+    && window.confirm(`Seconda conferma: condividi davvero "${v.titolo}" con "${nomeTeam}"?
+
+Potrai revocare la condivisione in qualsiasi momento da qui.`))
   const altrui = visioni
     .map(v => ({ v, p: permessoVisione(v, ctx) }))
     .filter(x => x.p === 'vista' || x.p === 'modifica')
@@ -267,7 +274,7 @@ export default function Team({ visioni = [], userId, isDemo, dati, onRefresh }) 
                           onChange={e => {
                             const val = e.target.value
                             if (!val) { if (riga) esegui('c-' + t.id, () => revocaCondivisione(riga.id)) }
-                            else esegui('c-' + t.id, () => condividiConTeam(v, t.id, val, userId, condivisioni))
+                            else if (riga || confermaKB(v, t.nome)) esegui('c-' + t.id, () => condividiConTeam(v, t.id, val, userId, condivisioni))
                           }}>
                           <option value="">Non condiviso</option>
                           {PERMESSI.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}

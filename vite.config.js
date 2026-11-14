@@ -35,6 +35,8 @@ export default defineConfig({
         display: 'standalone',
         start_url: base,
         scope: base,
+        // "Condividi → uTree" dal telefono: il link finisce in 📥 Da valutare (vedi App.jsx)
+        share_target: { action: base, method: 'GET', params: { title: 'kb_title', text: 'kb_text', url: 'kb_url' } },
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },

@@ -77,3 +77,18 @@ test("privacy alta di default; normale solo se scritto; i temi ignorano la riga 
   assert.equal(privacyAlta(temi), true);
   assert.deepEqual(elencoTemi(temi), []);   // la nuova base nasce senza temi (riga vuota ignorata)
 });
+
+test("collegaTitoli, esportaMarkdown, percorsoEsporta, righeTemi", async () => {
+  const m = await import("../supabase/functions/_shared/agente.js");
+  assert.equal(m.collegaTitoli("Il Respiro e **Respiro** e https://x.it/Respiro", ["Respiro"], "Onde"), "Il ((Respiro|Respiro)) e **Respiro** e https://x.it/Respiro");
+  assert.equal(m.collegaTitoli("Respiro", ["Respiro"], "Respiro"), "Respiro");   // mai verso sé stessa
+  const md = m.esportaMarkdown([
+    { id: "a", titolo: "📚 Banca", blocchi: [{ text: "intro" }, { text: "1. punto", indent: 1 }], ordine: 0 },
+    { id: "b", titolo: "Respiro", parent_id: "a", blocchi: [{ text: "vedi ((Meditazione|meditare))" }], ordine: 0 },
+    { id: "c", titolo: "📥 Da valutare", blocchi: [{ text: "x" }] },
+  ]);
+  assert.equal(md, "# Banca\n\nintro\n1. punto\n\n## Respiro\n\nvedi meditare\n");
+  assert.equal(m.percorsoEsporta([{ text: "Esporta in: C:/x/coach.md" }]), "C:/x/coach.md");
+  assert.deepEqual(m.righeTemi({ temi: [{ nome: "Respiro", perche: "x" }, { nome: "Qigong", perche: "vicino" }] }, ["Respiro"], []),
+    ["Tema · Qigong → vista: 🛰 Temi da seguire", "  Perché: vicino"]);
+});

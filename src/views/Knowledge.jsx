@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, hasSupabase } from '../lib/supabase.js'
-import { IS_KB, elencoTemi, privacyAlta } from '../../supabase/functions/_shared/agente.js'
+import { IS_KB, campo, elencoTemi, parseProposte, privacyAlta } from '../../supabase/functions/_shared/agente.js'
 
 // ============================================================
 // KNOWLEDGE — le knowledge base. Sono le visioni con "knowledge",
@@ -9,9 +9,8 @@ import { IS_KB, elencoTemi, privacyAlta } from '../../supabase/functions/_shared
 // 🛰 Temi da seguire, 🔎 Cerca ora), le sue viste in albero e la
 // ricerca dentro il testo delle righe.
 // ============================================================
-const PROPOSTA = /^(Novità|Metodo)\s*·/i
 const SEL_KEY = 'utree-kb-sel'
-const approvata = (b) => !!b.done || /\bok\s*$/i.test(b.text || '')
+const ICONA = { novita: '💡', metodo: '🔧', tema: '🛰' }
 const pulito = (t) => (t || '').replace(/\*\*|`/g, '').replace(/\(\(([^()|]+)\|([^()]+)\)\)/g, '$2').replace(/\{[a-z]+:([^}]*)\}/g, '$1')
 const leggiSel = () => { try { return localStorage.getItem(SEL_KEY) } catch { return null } }
 const scriviSel = (id) => { try { localStorage.setItem(SEL_KEY, id) } catch { /* solo comodità */ } }
@@ -27,7 +26,7 @@ async function agente(body) {
   return data
 }
 
-export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna, onNuovaBase, onNuovaVista }) {
+export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna, onNuovaBase, onNuovaVista, onSalvaVista }) {
   const [query, setQuery] = useState('')
   const [giro, setGiro] = useState(null)   // { msg, attivo } durante e dopo "Cerca ora"
   const [selId, setSelId] = useState(leggiSel)
@@ -64,9 +63,18 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
     return { inbox, temi, righe: appiattisci(radici, 0) }
   }, [viste, base?.id])
 
-  const proposte = (inbox?.blocchi || []).filter(b => !b.indent && PROPOSTA.test(b.text || ''))
-  const nuove = proposte.filter(b => !approvata(b)).length
+  const proposte = parseProposte(inbox?.blocchi || [])
+  const nuove = proposte.filter(p => !p.approvata).length
   const approvate = proposte.length - nuove
+
+  // ✓ / ✕ con un tocco: ✓ spunta la proposta (entra alla prossima ricerca), ✕ la toglie con le sue righe
+  const decidi = (p, ok) => {
+    const b = inbox.blocchi
+    const blocchi = ok
+      ? b.map((x, i) => i === p.da ? { ...x, check: true, done: !p.approvata } : x)
+      : b.filter((_, i) => i < p.da || i >= p.a)
+    onSalvaVista?.({ ...inbox, blocchi })
+  }
   const nTemi = temi ? elencoTemi(temi.blocchi || []).length : 0
   const privata = privacyAlta(temi?.blocchi)
 
@@ -110,6 +118,30 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
         <button className="chip" title="Crea una nuova knowledge base (con Temi e Da valutare già pronti)" onClick={onNuovaBase}>＋ Nuova</button>
       </div>
 
+      {base && inbox && proposte.length > 0 && !q && (
+        <div className="kb-list kb-proposte">
+          {proposte.map(p => {
+            const sotto = p.tipo === 'novita' ? campo(p.figli, 'Cosa aggiunge') : campo(p.figli, 'Perché') || campo(p.figli, 'Modifica proposta')
+            const fonte = campo(p.figli, 'Fonte')
+            const url = (fonte.match(/https?:\/\/\S+/) || [])[0]
+            const aff = (fonte.match(/affidabilità: ([^,]+)/) || [])[1]
+            return (
+              <div key={p.da + p.titolo} className={'kb-prop' + (p.approvata ? ' ok' : '')}>
+                <div className="kb-prop-txt">
+                  <b>{ICONA[p.tipo]} {p.titolo}</b>
+                  {sotto && <span className="kb-snip">{pulito(sotto)}</span>}
+                  <span className="kb-n">→ {p.vista}{url && <> · <a href={url} target="_blank" rel="noopener noreferrer">fonte</a></>}{aff ? ` · ${aff}` : ''}</span>
+                </div>
+                <button className={'iconbtn kb-si' + (p.approvata ? ' on' : '')} disabled={!onSalvaVista}
+                  title={p.approvata ? 'Approvata: entra alla prossima ricerca (tocca per annullare)' : 'Approva: entra alla prossima ricerca'}
+                  onClick={() => decidi(p, true)}>✓</button>
+                <button className="iconbtn kb-no" title="Scarta" disabled={!onSalvaVista} onClick={() => decidi(p, false)}>✕</button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {!base && <p className="kb-vuoto">Nessuna knowledge base: crea la prima con ＋ Nuova.</p>}
 
       {base && (
@@ -146,7 +178,7 @@ export default function Knowledge({ viste = [], visioni = [], onOpen, onAggiorna
       {base && (
         <p className="kb-avviso">
           {privata
-            ? <>🔒 <b>Privacy alta</b>: quando l'agente cerca, a <b>Google Gemini</b> (piano gratuito) arrivano solo i <b>nomi dei temi</b> e i titoli delle proposte, mai il testo delle tue viste. Le knowledge base non si possono condividere in team.</>
+            ? <>🔒 <b>Privacy alta</b>: quando l'agente cerca, a <b>Google Gemini</b> (piano gratuito) arrivano solo i <b>nomi dei temi</b> e i titoli delle proposte, mai il testo delle tue viste. Condividerla in team chiede due conferme.</>
             : <>⚠️ <b>Privacy normale</b>: quando l'agente cerca, il <b>testo delle viste</b> dei Temi da seguire arriva a <b>Google Gemini</b> (piano gratuito), che può usarlo per migliorare i suoi servizi. Per tenerlo in uTree scrivi "Privacy: alta" in Temi da seguire.</>}
         </p>
       )}

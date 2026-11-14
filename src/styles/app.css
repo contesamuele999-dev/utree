@@ -1738,3 +1738,9 @@ a { color: var(--accent); text-decoration: none; }
 .kb-avviso b { color: var(--text); }
 .kb-basi { display: flex; gap: 6px; flex-wrap: wrap; }
 .kb-add { color: var(--text-dim); justify-content: center; }
+.kb-prop { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.kb-prop:last-child { border-bottom: 0; }
+.kb-prop.ok { background: color-mix(in srgb, var(--green) 9%, transparent); }
+.kb-prop-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.kb-prop-txt a { color: var(--green-bright); }
+.kb-si.on { background: var(--green); color: var(--bg); border-color: var(--green); }

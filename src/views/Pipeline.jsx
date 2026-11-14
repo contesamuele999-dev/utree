@@ -182,7 +182,7 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
         if (sez.kbHeader) return (
           <div key="__kb__" className="archivio-head kb-head">
             <span className="archivio-toggle">📚 Knowledge base · {sez.n}</span>
-            <span className="crumb">Private: non si condividono in team. Si gestiscono dalla scheda Knowledge.</span>
+            <span className="crumb">Private: condividerle in team chiede due conferme. Si gestiscono dalla scheda Knowledge.</span>
           </div>
         )
         if (sez.archivioHeader) return (
@@ -267,10 +267,8 @@ export default function Pipeline({ visioni, viste, permessi, onApriTeam, query: 
             {mioProgetto(vis) && (
               <>
                 <button className="iconbtn mini" title="Rinomina" onClick={() => onRenameVisione(vis)}>✎</button>
-                {!IS_KB.test(vis.titolo || '') && (
-                  <button className="iconbtn mini" title="Condividi questo progetto con un team"
-                    onClick={() => onApriTeam?.()}>👥</button>
-                )}
+                <button className="iconbtn mini" title={IS_KB.test(vis.titolo || '') ? 'Knowledge base: condivisibile in team, con doppia conferma' : 'Condividi questo progetto con un team'}
+                  onClick={() => onApriTeam?.()}>👥</button>
                 <button className={'iconbtn mini' + (vis.archiviata ? ' on' : '')}
                   title={vis.archiviata
                     ? 'Togli dall’archivio: tornerà in cima e proporrà di nuovo le sue scadenze in Today'

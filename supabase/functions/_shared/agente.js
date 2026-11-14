@@ -9,7 +9,7 @@
 // ============================================================
 
 export const IS_KB = /knowledge|banca dati|\bkb\b/i;
-const RE_PROPOSTA = /^(Novità|Metodo)\s*·\s*(.+?)\s*→\s*vista:\s*(.+?)(?:\s+ok)?\s*$/i;
+const RE_PROPOSTA = /^(Novità|Metodo|Tema)\s*·\s*(.+?)\s*→\s*vista:\s*(.+?)(?:\s+ok)?\s*$/i;
 export const bid = () => "b-" + Math.random().toString(36).slice(2, 9);
 export const oggiIso = () => new Date().toISOString().slice(0, 10);
 
@@ -26,7 +26,7 @@ export function parseProposte(blocchi) {
     let j = i + 1;
     while (j < blocchi.length && blocchi[j].indent) j++;
     out.push({
-      tipo: m[1].toLowerCase() === "novità" ? "novita" : "metodo",
+      tipo: { "novità": "novita", metodo: "metodo", tema: "tema" }[m[1].toLowerCase()],
       titolo: m[2], vista: m[3],
       approvata: !!b.done || /\bok\s*$/i.test(b.text),
       figli: blocchi.slice(i + 1, j).map((x) => x.text || ""),
@@ -80,10 +80,37 @@ export function togliIntegrate(blocchi, fatte, oggi) {
   return resto;
 }
 
-/** Righe da aggiungere alla vista di destinazione per una proposta approvata. */
-export const righeIntegrazione = (p, oggi) => p.tipo === "novita"
-  ? [`💡 ${p.titolo}: ${campo(p.figli, "Cosa aggiunge")}`, `  ${campo(p.figli, "Fonte")} · integrata ${oggi}`]
+/** Righe da aggiungere alla vista di destinazione per una proposta approvata (un tema va in fondo a "Temi"). */
+export const righeIntegrazione = (p, oggi) =>
+  p.tipo === "novita" ? [`💡 ${p.titolo}: ${campo(p.figli, "Cosa aggiunge")}`, `  ${campo(p.figli, "Fonte")} · integrata ${oggi}`]
+  : p.tipo === "tema" ? [`  ${p.titolo}`]
   : [`🔧 ${p.titolo} (${oggi})`, `  ${campo(p.figli, "Modifica proposta")}`, `  Perché: ${campo(p.figli, "Perché")}`];
+
+// pezzi di testo da non toccare quando si aggiungono link: url, link, grassetto, codice, colori
+const PROTETTI = /(https?:\/\/\S+|www\.\S+|\(\([^()]*\)\)|\[\[[^\]]*\]\]|\*\*[^*]+\*\*|`[^`]+`|\{[a-z]+:[^}]*\})/g;
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Nome "parlante" di una vista: senza emoji iniziali (📚 Banca dati coach → Banca dati coach). */
+export const nomeVista = (t) => (t || "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+
+/**
+ * Collega nel testo le altre viste citate per nome: "…la respirazione…" con una vista "Respiro"
+ * non basta, serve il nome: "…il Respiro…" → "…il ((Respiro|Respiro))…". Una volta per vista
+ * (`usati` si porta dietro fra le righe), mai verso `se`, mai dentro url/grassetto/codice/link.
+ */
+export function collegaTitoli(testo, titoli, se, usati = new Set()) {
+  const cand = titoli.filter((t) => t !== se && nomeVista(t).length >= 4);
+  return testo.split(PROTETTI).map((pezzo, i) => {
+    if (i % 2 === 1) return pezzo;
+    for (const t of cand) {
+      if (usati.has(t)) continue;
+      const m = pezzo.match(new RegExp(`(?<![\\p{L}\\p{N}])${escRe(nomeVista(t))}(?![\\p{L}\\p{N}])`, "iu"));
+      if (!m) continue;
+      usati.add(t);
+      pezzo = pezzo.slice(0, m.index) + `((${t}|${m[0]}))` + pezzo.slice(m.index + m[0].length);
+    }
+    return pezzo;
+  }).join("");
+}
 
 /** Titoli già proposti o integrati (per non riproporli). */
 export const giaVisti = (blocchi) => [
@@ -97,6 +124,36 @@ export const giaVisti = (blocchi) => [
  *   "Privacy: normale" → anche il testo della vista del tema (proposte più mirate)
  */
 export const privacyAlta = (blocchi) => !(blocchi || []).some((b) => /^privacy:\s*normale\b/i.test((b.text || "").trim()));
+
+/** Percorso scritto in "🛰 Temi da seguire" come "Esporta in: C:\…\file.md" (o null). */
+export const percorsoEsporta = (blocchi) =>
+  ((blocchi || []).map((b) => (b.text || "").trim().match(/^esporta in:\s*(.+\.md)\s*$/i)).find(Boolean) || [])[1] || null;
+
+/**
+ * Knowledge base → Markdown (es. la banca dati dello Spiral Coach). Viste radice come "#",
+ * figlie come "##", nell'ordine dell'albero; i link ((Vista|parola)) tornano testo semplice.
+ * Le viste dell'agente (Da valutare, Temi) restano fuori.
+ */
+export function esportaMarkdown(viste) {
+  const resto = viste.filter((v) => !/Da valutare|Temi da seguire/.test(v.titolo || ""));
+  const ids = new Set(resto.map((v) => v.id));
+  const figli = {};
+  const radici = [];
+  for (const v of resto) (v.parent_id && ids.has(v.parent_id) ? (figli[v.parent_id] ||= []) : radici).push(v);
+  const ord = (a, b) => (a.ordine || 0) - (b.ordine || 0);
+  const testo = (t) => (t || "").replace(/\(\(([^()|]+)\|([^()]+)\)\)/g, "$2").replace(/\(\(([^()]+)\)\)|\[\[([^\]]+)\]\]/g, (_, a, b) => a || b);
+  const righe = (v) => (v.blocchi || []).filter((b) => (b.text || "").trim()).map((b) =>
+    (b.indent ? "  ".repeat(b.indent - 1) + (/^(\d+\.|[-*])\s/.test(b.text) ? "" : "- ") : "") + testo(b.text));
+  const out = [];
+  const giu = (lista, livello) => {
+    for (const v of lista.sort(ord)) {
+      out.push(`${"#".repeat(Math.min(livello, 6))} ${nomeVista(v.titolo)}`, "", ...righe(v), "");
+      giu(figli[v.id] || [], livello + 1);
+    }
+  };
+  giu(radici, 1);
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
 
 /** Viste con cui nasce una nuova knowledge base. */
 export const KB_VISTE = [
@@ -216,14 +273,41 @@ Rispondi SOLO con JSON:
  "metodi":[{"cosa":"","perche":"","modifica":"riga o righe esatte da aggiungere"}]}`;
 }
 
-/** Un tema: query → candidati → scelta di Gemini → righe da aggiungere a "Da valutare". */
-export async function ricercaTema({ tema, giaSai, visti, dest, key, modello, oggi = oggiIso() }) {
-  const q = (await gemini(promptQuery(tema, giaSai), key, modello)) || {};
+/** Modello locale (Ollama sul PC): stessa interfaccia di gemini(), niente esce dal computer. */
+export async function ollama(prompt, modello, url = "http://127.0.0.1:11434") {
+  const res = await fetch(`${url}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: modello, prompt, format: "json", stream: false }),
+    signal: AbortSignal.timeout(300000),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Ollama ${res.status}: ${j.error || ""}`);
+  return estraiJson(j.response || "");
+}
+
+/** Un tema: query → candidati → scelta del modello → righe da aggiungere a "Da valutare".
+ *  `llm(prompt)` → JSON: Gemini nella Edge Function, Ollama sul PC. */
+export async function ricercaTema({ tema, giaSai, visti, dest, llm, oggi = oggiIso() }) {
+  const q = (await llm(promptQuery(tema, giaSai))) || {};
   const candidati = [
     ...(await cercaStudi(q.studi || tema, oggi).catch(() => [])),
     ...(await cercaNotizie(q.notizie || tema).catch(() => [])),
   ];
   if (!candidati.length) return { righe: [], novita: 0, candidati: 0 };
-  const j = await gemini(promptTema(tema, oggi, giaSai, visti, candidati), key, modello);
+  const j = await llm(promptTema(tema, oggi, giaSai, visti, candidati));
   return { ...righeProposte(j, candidati, dest), candidati: candidati.length };
+}
+
+/** Temi nuovi da seguire, dedotti da temi attuali (e, con privacy normale, dai titoli delle viste). */
+export const promptTemi = (temi, titoli) => `Una knowledge base personale segue questi temi: ${temi.join(", ") || "(nessuno)"}.
+${titoli.length ? `Contiene viste intitolate: ${titoli.join(", ")}.
+` : ""}Proponi al massimo 3 temi NUOVI, vicini a questi, su cui ha senso cercare ricerche scientifiche e notizie ogni settimana. Niente sinonimi dei temi già seguiti. Nomi brevi (1-4 parole), in italiano.
+Rispondi SOLO con JSON: {"temi":[{"nome":"","perche":"una frase"}]}`;
+
+/** Risposta di promptTemi → righe "Tema · …" per "Da valutare" (scarta i temi già seguiti o già proposti). */
+export function righeTemi(j, temi, visti) {
+  const gia = new Set([...temi, ...visti].map((t) => t.trim().toLowerCase()));
+  return (j?.temi || []).filter((t) => t?.nome && !gia.has(t.nome.trim().toLowerCase())).slice(0, 3)
+    .flatMap((t) => [`Tema · ${t.nome.trim()} → vista: 🛰 Temi da seguire`, `  Perché: ${t.perche || ""}`]);
 }
