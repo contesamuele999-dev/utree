@@ -92,3 +92,29 @@ test("collegaTitoli, esportaMarkdown, percorsoEsporta, righeTemi", async () => {
   assert.deepEqual(m.righeTemi({ temi: [{ nome: "Respiro", perche: "x" }, { nome: "Qigong", perche: "vicino" }] }, ["Respiro"], []),
     ["Tema · Qigong → vista: 🛰 Temi da seguire", "  Perché: vicino"]);
 });
+
+test("risposte fuori schema (modelli locali): oggetti singoli, campi mancanti, indici doppi", () => {
+  const c = [{ url: "u0", fonte: "Nature", data: "d" }, { url: "u1", fonte: "Science", data: "d" }];
+  const { righe, novita } = righeProposte({
+    novita: [{ i: 0, titolo: "A", cosa_aggiunge: "x" }, { i: "0", titolo: "A bis", cosa_aggiunge: "y" }, { i: 1 }],
+    metodi: { cosa: "Ripasso", perche: "p", modifica: "m" },   // oggetto, non lista
+  }, c, "Respiro");
+  assert.equal(novita, 1);
+  assert.equal(righe.filter((r) => r.startsWith("Metodo ·")).length, 1);
+  assert.deepEqual(righeProposte({ novita: { i: 1, titolo: "B", cosa_aggiunge: "z" } }, c, "R").novita, 1);
+  assert.deepEqual(righeProposte(null, c, "R").righe, []);
+});
+
+test("filtraCandidati: niente articoli vecchi, niente fonti già proposte, niente doppioni", async () => {
+  const { filtraCandidati, giaVisti } = await import("../supabase/functions/_shared/agente.js");
+  const c = [
+    { titolo: "nuovo", url: "u1", data: "2026-11-12" },
+    { titolo: "vecchio", url: "u2", data: "2017-09-01" },
+    { titolo: "già proposto", url: "u3", data: "2026-11-13" },
+    { titolo: "doppio", url: "u1", data: "2026-11-12" },
+    { titolo: "senza data", url: "u4", data: "" },
+  ];
+  assert.deepEqual(filtraCandidati(c, "2026-11-14", new Set(["u3"])).map((x) => x.titolo), ["nuovo", "senza data"]);
+  const v = giaVisti([{ text: "Novità · T → vista: R" }, { text: "Fonte: https://doi.org/1 (N, d) · affidabilità: alta, x", indent: 1 }]);
+  assert.ok(v.includes("https://doi.org/1"));
+});

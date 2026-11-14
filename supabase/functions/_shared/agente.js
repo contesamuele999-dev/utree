@@ -116,7 +116,19 @@ export function collegaTitoli(testo, titoli, se, usati = new Set()) {
 export const giaVisti = (blocchi) => [
   ...parseProposte(blocchi).map((p) => p.titolo),
   ...blocchi.filter((b) => b.indent && /^\d{4}-\d\d-\d\d · /.test(b.text || "")).map((b) => b.text.slice(13)),
+  // le fonti già proposte: lo stesso studio non torna con un altro titolo
+  ...blocchi.filter((b) => b.indent && /^Fonte:\s*https?:\/\//.test(b.text || "")).map((b) => b.text.match(/https?:\/\/\S+/)[0]),
 ];
+
+/**
+ * Candidati utilizzabili: dentro la finestra di 14 giorni (una query storta può far
+ * tornare articoli di anni fa), non già proposti, una volta sola per url.
+ */
+export function filtraCandidati(candidati, oggi, giaUrl = new Set()) {
+  const da = new Date(Date.parse(oggi) - 14 * 864e5).toISOString().slice(0, 10);
+  const visti = new Set(giaUrl);
+  return candidati.filter((c) => c?.url && c.titolo && (!c.data || c.data >= da) && !visti.has(c.url) && visti.add(c.url));
+}
 
 /**
  * Privacy della knowledge base, scritta nella vista "🛰 Temi da seguire":
@@ -175,9 +187,17 @@ export function elencoTemi(blocchi) {
   return blocchi.slice(i + 1).filter((b) => b.indent && b.text?.trim()).map((b) => b.text.trim());
 }
 
+/** Lista sempre: array così com'è, oggetto singolo → [oggetto], niente → []. */
+const lista = (x) => (Array.isArray(x) ? x : x && typeof x === "object" ? [x] : []);
+
 /** Scelte di Gemini + candidati → righe di proposta (url/fonte/data dal candidato). */
 export function righeProposte(j, candidati, dest) {
-  const novita = (j?.novita || []).filter((n) => candidati[n.i]).slice(0, 3);
+  // i modelli (soprattutto quelli locali) non sempre rispettano lo schema: una lista
+  // può arrivare come oggetto singolo, un campo può mancare. Si tiene solo ciò che è valido.
+  const visti = new Set();
+  const novita = lista(j?.novita)
+    .filter((n) => n && candidati[n.i] && n.titolo && n.cosa_aggiunge && !visti.has(Number(n.i)) && visti.add(Number(n.i)))
+    .slice(0, 3);
   const righe = [];
   for (const n of novita) {
     const c = candidati[n.i];
@@ -187,7 +207,7 @@ export function righeProposte(j, candidati, dest) {
       `  Cosa aggiunge: ${n.cosa_aggiunge}`,
       `  Fonte: ${c.url} (${c.fonte}, ${c.data}) · affidabilità: ${n.affidabilita}, ${n.motivo}`);
   }
-  for (const m of (novita.length ? j.metodi || [] : [])) {
+  for (const m of (novita.length ? lista(j.metodi).filter((m) => m?.cosa && m?.modifica) : [])) {
     righe.push(`Metodo · ${m.cosa} → vista: ${dest}`, `  Perché: ${m.perche}`, `  Modifica proposta: ${m.modifica}`);
   }
   return { righe, novita: novita.length };
@@ -290,10 +310,11 @@ export async function ollama(prompt, modello, url = "http://127.0.0.1:11434") {
  *  `llm(prompt)` → JSON: Gemini nella Edge Function, Ollama sul PC. */
 export async function ricercaTema({ tema, giaSai, visti, dest, llm, oggi = oggiIso() }) {
   const q = (await llm(promptQuery(tema, giaSai))) || {};
-  const candidati = [
-    ...(await cercaStudi(q.studi || tema, oggi).catch(() => [])),
-    ...(await cercaNotizie(q.notizie || tema).catch(() => [])),
-  ];
+  const giaUrl = new Set(visti.map((v) => (v.match(/https?:\/\/\S+/) || [])[0]).filter(Boolean));
+  const candidati = filtraCandidati([
+    ...(await cercaStudi(String(q.studi || tema), oggi).catch(() => [])),
+    ...(await cercaNotizie(String(q.notizie || tema)).catch(() => [])),
+  ], oggi, giaUrl);
   if (!candidati.length) return { righe: [], novita: 0, candidati: 0 };
   const j = await llm(promptTema(tema, oggi, giaSai, visti, candidati));
   return { ...righeProposte(j, candidati, dest), candidati: candidati.length };
@@ -308,6 +329,6 @@ Rispondi SOLO con JSON: {"temi":[{"nome":"","perche":"una frase"}]}`;
 /** Risposta di promptTemi → righe "Tema · …" per "Da valutare" (scarta i temi già seguiti o già proposti). */
 export function righeTemi(j, temi, visti) {
   const gia = new Set([...temi, ...visti].map((t) => t.trim().toLowerCase()));
-  return (j?.temi || []).filter((t) => t?.nome && !gia.has(t.nome.trim().toLowerCase())).slice(0, 3)
+  return lista(j?.temi).filter((t) => typeof t?.nome === "string" && t.nome.trim() && !gia.has(t.nome.trim().toLowerCase())).slice(0, 3)
     .flatMap((t) => [`Tema · ${t.nome.trim()} → vista: 🛰 Temi da seguire`, `  Perché: ${t.perche || ""}`]);
 }

@@ -36,6 +36,7 @@ exit /b 1
 ollama list | findstr /i /c:"%MODELLO%" >nul
 if errorlevel 1 (
     echo Prima volta: scarico il modello %MODELLO% - circa 5 GB, attendi...
+    echo Non chiudere la finestra. Se si interrompe, rilancia: riprende da dove era arrivato.
     ollama pull %MODELLO%
     if errorlevel 1 (
         echo Download non riuscito.
