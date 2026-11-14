@@ -30,3 +30,11 @@ export async function prepareImage(file, max = 1600, quality = 0.85) {
   const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality))
   return { blob, base64, width, height }
 }
+
+// Primo file immagine negli appunti di un evento paste (screenshot, immagine copiata), o null.
+export function clipboardImage(e) {
+  for (const it of e.clipboardData?.items || []) {
+    if (it.kind === 'file' && it.type.startsWith('image/')) return it.getAsFile()
+  }
+  return null
+}

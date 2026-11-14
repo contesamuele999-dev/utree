@@ -4,7 +4,7 @@ import { logChars } from '../lib/activity.js'
 import { cacheVistaLocal } from '../lib/localcache.js'
 import { STAGES, stageOf } from '../lib/stages.js'
 import { store } from '../lib/store.js'
-import { prepareImage } from '../lib/images.js'
+import { prepareImage, clipboardImage } from '../lib/images.js'
 import * as gcal from '../lib/gcal.js'
 import { edgeScroll, stopEdgeScroll } from '../lib/edgescroll.js'
 import { leggiPiegature, scriviPiegature } from '../lib/piegature.js'
@@ -574,6 +574,8 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     redoStack.current = []
   }
 
+  const blocksRef = useRef(blocks)
+  blocksRef.current = blocks
   const commit = (next, { undo = true } = {}) => {
     if (bloccato) return
     if (undo) pushUndo(blocks)
@@ -910,6 +912,13 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     const handler = (e) => {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const img = clipboardImage(e)
+      if (img) {
+        e.preventDefault()
+        // una sola riga selezionata: allega lì; altrimenti nuova riga in fondo
+        onImageChosen(img, selected.size === 1 ? [...selected][0] : 'new')
+        return
+      }
       const text = e.clipboardData?.getData('text') || ''
       if (!text.trim()) return
       e.preventDefault()
@@ -919,7 +928,7 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
     document.addEventListener('paste', handler)
     return () => document.removeEventListener('paste', handler)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocks, title, trash])
+  }, [blocks, title, trash, selected])
 
   // ---- svuota il contenuto di una riga, mantenendo la riga (niente cestino) ----
   const clearBlock = (id) => {
@@ -957,9 +966,9 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
 
   // ---- immagini allegate alle righe: upload su Supabase Storage (o base64 in demo) ----
   const openImagePicker = (id) => { if (bloccato) return; imgTargetId.current = id; imgInputRef.current?.click() }
-  const onImageChosen = async (file) => {
-    const id = imgTargetId.current
-    if (!file || !id || !file.type?.startsWith('image/')) return
+  // id = riga a cui allegare; 'new' = nuova riga in fondo (incolla fuori da una riga)
+  const onImageChosen = async (file, id = imgTargetId.current) => {
+    if (bloccato || !file || !id || !file.type?.startsWith('image/')) return
     setImgBusy(true)
     setToast('Carico immagine…')
     try {
@@ -967,7 +976,11 @@ export default function Editor({ vista, onChange, onWikilink, focusMode, allVist
       let entry
       if (store.isCloud) { const r = await store.uploadImage(blob, vista.id); entry = { url: r.url, path: r.path } }
       else entry = { url: base64, path: null }
-      const next = blocks.map(b => b.id === id ? { ...b, imgs: [...(b.imgs || []), entry] } : b)
+      // blocksRef: durante l'upload l'utente può aver continuato a scrivere
+      const cur = blocksRef.current
+      const next = id === 'new'
+        ? [...cur, { id: uid(), text: '', indent: 0, imgs: [entry] }]
+        : cur.map(b => b.id === id ? { ...b, imgs: [...(b.imgs || []), entry] } : b)
       commit(next)
       setToast('Immagine allegata')
     } catch (e) {
@@ -2513,6 +2526,8 @@ ${rowsHtml}
                 setEditing(null); setSlash(null)
               }}
               onPaste={e => {
+                const img = clipboardImage(e)
+                if (img) { e.preventDefault(); onImageChosen(img, b.id); return }
                 const text = e.clipboardData?.getData('text') || ''
                 const unaRiga = pasteOneLine.current
                 pasteOneLine.current = false
