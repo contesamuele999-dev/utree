@@ -20,6 +20,8 @@ const Editor = lazy(caricaEditor)
 const Tree = lazy(() => import('./views/Tree.jsx'))
 const Links = lazy(() => import('./views/Links.jsx'))
 const Progress = lazy(() => import('./views/Progress.jsx'))
+const Knowledge = lazy(() => import('./views/Knowledge.jsx'))
+import { IS_KB } from '../supabase/functions/_shared/agente.js'
 const Stats = lazy(() => import('./views/Stats.jsx'))
 const Profile = lazy(() => import('./views/Profile.jsx'))
 const Team = lazy(() => import('./views/Team.jsx'))
@@ -40,6 +42,7 @@ const TABS = [
   { id: 'pipe', label: 'Pipe' },
   { id: 'tree', label: 'Tree' },
   { id: 'links', label: 'Links' },
+  { id: 'kb', label: 'Knowledge', short: 'KB' },
   { id: 'progress', label: 'Progress' },
 ]
 
@@ -1411,7 +1414,7 @@ export default function App() {
             const cur = TABS.findIndex(x => x.id === tab)
             return (
               <button key={t.id} className={'tab' + (tab === t.id ? ' active' : '')}
-                onClick={() => changeTab(t.id, i > cur ? 1 : -1)}>{t.label}</button>
+                onClick={() => changeTab(t.id, i > cur ? 1 : -1)}>{t.short ? <><span className="tab-long">{t.label}</span><span className="tab-short">{t.short}</span></> : t.label}</button>
             )
           })}
         </div>
@@ -1471,6 +1474,11 @@ export default function App() {
             (viste.length)
               ? <Links viste={visteConFasi} visioni={visioni} onOpen={openFromList} />
               : <Empty msg="Crea qualche vista e collegale con ((Nome vista)) per vedere la mappa." />
+          )}
+          {tab === 'kb' && (
+            visioni.some(v => IS_KB.test(v.titolo || ''))
+              ? <Knowledge viste={visteConFasi} visioni={visioni} onOpen={openFromList} onAggiorna={reload} />
+              : <Empty msg='Crea una visione con "Knowledge" o "Banca dati" nel nome: le sue viste compaiono qui.' />
           )}
           {tab === 'progress' && (
             <Progress viste={visteConFasi} onOpen={openFromList} onSetStage={setStage} />
